@@ -1,0 +1,20 @@
+[
+  {
+    "date": "2026-09-30",
+    "category": "Food",
+    "item": "Coffee",
+    "amount": 5.0
+  },
+  {
+    "date": "2026-09-30",
+    "category": "Food",
+    "item": "Coffee",
+    "amount": 5.0
+  },
+  {
+    "date": "2026-09-30",
+    "category": "Transport",
+    "item": "Bus fare",
+    "amount": 2.0
+  }
+]
