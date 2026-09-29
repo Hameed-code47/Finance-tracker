@@ -148,6 +148,7 @@ activemq-data/
 *.sage.py
 
 # Environments
+expenses.json
 .env
 .envrc
 .venv
