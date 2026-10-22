@@ -11,9 +11,17 @@ def load_expenses():
             return json.load(file)
     else:
         return []
-    
-def display_expenses():
+
+def filter_by_category(expenses, category):
+    return [e for e in expenses if e["category"].lower() == category.lower()]
+
+def monthly_total(expenses, month):
+    return sum(e["amount"] for e in expenses if e["date"].startswith(month))
+
+def display_expenses(category=None):
     expenses = load_expenses()
+    if category:
+        expenses = filter_by_category(expenses, category)
     console = Console()
     table = Table(title="Your Expenses")
     table.add_column("Date")
@@ -46,5 +54,28 @@ def add_expense(date, category, item, amount):
         json.dump(expenses, file, indent=2)
 
     print(f"Added: {item} - ${amount:.2f} ({category})")
-# add_expense("2026-09-30", "Food", "Coffee", 5.00)
-display_expenses()
+def show_menu():
+    while True:
+        print("\n1. Show all expenses")
+        print("2. Show expenses by category")
+        print("3. Show monthly total")
+        print("4. Quit")
+        choice = input("Choose an option: ")
+
+        if choice == "1":
+            display_expenses()
+        elif choice == "2":
+            category = input("Category: ")
+            display_expenses(category)
+        elif choice == "3":
+            month = input("Month (YYYY-MM): ")
+            total = monthly_total(load_expenses(), month)
+            print(f"Total for {month}: {total}")
+        elif choice == "4":
+            break
+        else:
+            print("Invalid choice")
+
+
+if __name__ == "__main__":
+    show_menu()
