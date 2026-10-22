@@ -59,7 +59,8 @@ def show_menu():
         print("\n1. Show all expenses")
         print("2. Show expenses by category")
         print("3. Show monthly total")
-        print("4. Quit")
+        print("4. Add an expense")
+        print("5. Quit")
         choice = input("Choose an option: ")
 
         if choice == "1":
@@ -72,6 +73,12 @@ def show_menu():
             total = monthly_total(load_expenses(), month)
             print(f"Total for {month}: {total}")
         elif choice == "4":
+            date = input("Date (YYYY-MM-DD): ")
+            category = input("Category: ")
+            item = input("Item: ")
+            amount = float(input("Amount: "))
+            add_expense(date, category, item, amount)
+        elif choice == "5":
             break
         else:
             print("Invalid choice")
