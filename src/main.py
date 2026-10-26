@@ -18,6 +18,19 @@ def filter_by_category(expenses, category):
 def monthly_total(expenses, month):
     return sum(e["amount"] for e in expenses if e["date"].startswith(month))
 
+def previous_month(month):
+    year, mon = map(int, month.split("-"))
+    if mon == 1:
+        return f"{year - 1}-12"
+    return f"{year}-{mon - 1:02d}"
+
+def spending_trend(expenses, month):
+    this_total = monthly_total(expenses, month)
+    last_total = monthly_total(expenses, previous_month(month))
+    if last_total == 0:
+        return None
+    return round((this_total - last_total) / last_total * 100, 1)
+
 def display_expenses(category=None):
     expenses = load_expenses()
     if category:
@@ -54,13 +67,16 @@ def add_expense(date, category, item, amount):
         json.dump(expenses, file, indent=2)
 
     print(f"Added: {item} - ${amount:.2f} ({category})")
+
+
 def show_menu():
     while True:
         print("\n1. Show all expenses")
         print("2. Show expenses by category")
         print("3. Show monthly total")
         print("4. Add an expense")
-        print("5. Quit")
+        print("5. Show spending trend")
+        print("6. Quit")
         choice = input("Choose an option: ")
 
         if choice == "1":
@@ -79,6 +95,16 @@ def show_menu():
             amount = float(input("Amount: "))
             add_expense(date, category, item, amount)
         elif choice == "5":
+            month = input("Month (YYYY-MM): ")
+            last = previous_month(month)
+            trend = spending_trend(load_expenses(), month)
+            if trend is None:
+                print(f"No spending recorded in {last} to compare with.")
+            elif trend >= 0:
+                print(f"Spending in {month} is up {trend}% from {last}.")
+            else:
+                print(f"Spending in {month} is down {abs(trend)}% from {last}.")
+        elif choice == "6":
             break
         else:
             print("Invalid choice")
