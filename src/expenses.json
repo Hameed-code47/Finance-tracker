@@ -22,5 +22,17 @@
     "category": "Transport",
     "item": "Taxi",
     "amount": 7.5
+  },
+  {
+    "date": "2026-10-27",
+    "category": "Food",
+    "item": "Lunch",
+    "amount": 8.5
+  },
+  {
+    "date": "2026-10-27",
+    "category": "Food",
+    "item": "Iced coffee",
+    "amount": 4.0
   }
 ]

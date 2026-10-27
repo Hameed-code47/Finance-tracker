@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import argparse
 from rich.console import Console
 from rich.table import Table
 
@@ -110,5 +111,49 @@ def show_menu():
             print("Invalid choice")
 
 
+def build_parser():
+    parser = argparse.ArgumentParser(description="Personal finance tracker")
+    subparsers = parser.add_subparsers(dest="command")
+
+    add_parser = subparsers.add_parser("add", help="Add an expense")
+    add_parser.add_argument("date", help="Date as YYYY-MM-DD")
+    add_parser.add_argument("category", help="Category, e.g. Food")
+    add_parser.add_argument("item", help="What you bought")
+    add_parser.add_argument("amount", type=float, help="Amount, e.g. 8.5")
+
+    list_parser = subparsers.add_parser("list", help="Show expenses")
+    list_parser.add_argument("--category", help="Only show this category")
+
+    summary_parser = subparsers.add_parser("summary", help="Show total spending for a month")
+    summary_parser.add_argument("month", help="Month as YYYY-MM")
+
+    trend_parser = subparsers.add_parser("trend", help="Compare a month with the month before")
+    trend_parser.add_argument("month", help="Month as YYYY-MM")
+
+    return parser
+
+
+def main():
+    args = build_parser().parse_args()
+    if args.command == "add":
+        add_expense(args.date, args.category, args.item, args.amount)
+    elif args.command == "list":
+        display_expenses(args.category)
+    elif args.command == "summary":
+        total = monthly_total(load_expenses(), args.month)
+        print(f"Total for {args.month}: {total}")
+    elif args.command == "trend":
+        last = previous_month(args.month)
+        trend = spending_trend(load_expenses(), args.month)
+        if trend is None:
+            print(f"No spending recorded in {last} to compare with.")
+        elif trend >= 0:
+            print(f"Spending in {args.month} is up {trend}% from {last}.")
+        else:
+            print(f"Spending in {args.month} is down {abs(trend)}% from {last}.")
+    else:
+        show_menu()
+
+
 if __name__ == "__main__":
-    show_menu()
+    main()
