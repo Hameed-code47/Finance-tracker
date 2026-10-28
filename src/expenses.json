@@ -34,5 +34,17 @@
     "category": "Food",
     "item": "Iced coffee",
     "amount": 4.0
+  },
+  {
+    "date": "2026-10-28",
+    "category": "Food",
+    "item": "Snack",
+    "amount": 3.0
+  },
+  {
+    "date": "2026-10-28",
+    "category": "Food",
+    "item": "Tea",
+    "amount": 2.5
   }
 ]

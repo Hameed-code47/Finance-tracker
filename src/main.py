@@ -1,6 +1,7 @@
 from pathlib import Path
 import json
 import argparse
+from datetime import datetime
 from rich.console import Console
 from rich.table import Table
 
@@ -32,6 +33,23 @@ def spending_trend(expenses, month):
         return None
     return round((this_total - last_total) / last_total * 100, 1)
 
+def is_valid_date(text):
+    try:
+        parsed = datetime.strptime(text, "%Y-%m-%d")
+    except ValueError:
+        return False
+    return parsed.strftime("%Y-%m-%d") == text
+
+def is_valid_amount(value):
+    try:
+        number = float(value)
+    except (ValueError, TypeError):
+        return False
+    return number > 0
+
+def is_not_empty(text):
+    return bool(text and text.strip())
+
 def display_expenses(category=None):
     expenses = load_expenses()
     if category:
@@ -51,6 +69,23 @@ def display_expenses(category=None):
         )
     console.print(table)
 def add_expense(date, category, item, amount):
+    if not is_valid_date(date):
+        print("Error: date must be a real date in YYYY-MM-DD format, e.g. 2026-10-27.")
+        return False
+    if not is_not_empty(category):
+        print("Error: category cannot be empty.")
+        return False
+    if not is_not_empty(item):
+        print("Error: item cannot be empty.")
+        return False
+    if not is_valid_amount(amount):
+        print("Error: amount must be a number greater than 0.")
+        return False
+
+    amount = float(amount)
+    category = category.strip()
+    item = item.strip()
+
     expense = {
         "date": date,
         "category": category,
@@ -68,6 +103,7 @@ def add_expense(date, category, item, amount):
         json.dump(expenses, file, indent=2)
 
     print(f"Added: {item} - ${amount:.2f} ({category})")
+    return True
 
 
 def show_menu():
@@ -93,7 +129,7 @@ def show_menu():
             date = input("Date (YYYY-MM-DD): ")
             category = input("Category: ")
             item = input("Item: ")
-            amount = float(input("Amount: "))
+            amount = input("Amount: ")
             add_expense(date, category, item, amount)
         elif choice == "5":
             month = input("Month (YYYY-MM): ")
