@@ -7,6 +7,7 @@ from rich.table import Table
 
 DATA_FILE = Path(__file__).parent / "expenses.json"
 
+
 class Expense:
     def __init__(self, date, category, item, amount):
         self.date = date
@@ -25,6 +26,7 @@ class Expense:
     @classmethod
     def from_dict(cls, data):
         return cls(data["date"], data["category"], data["item"], data["amount"])
+
 
 class ExpenseTracker:
     def __init__(self, data_file):
@@ -58,24 +60,21 @@ class ExpenseTracker:
             return None
         return round((this_total - last_total) / last_total * 100, 1)
 
-def load_expenses():
-    if DATA_FILE.exists():
-        with open(DATA_FILE, "r") as file:
-            return json.load(file)
-    else:
-        return []
 
 def filter_by_category(expenses, category):
     return [e for e in expenses if e["category"].lower() == category.lower()]
 
+
 def monthly_total(expenses, month):
     return sum(e["amount"] for e in expenses if e["date"].startswith(month))
+
 
 def previous_month(month):
     year, mon = map(int, month.split("-"))
     if mon == 1:
         return f"{year - 1}-12"
     return f"{year}-{mon - 1:02d}"
+
 
 def spending_trend(expenses, month):
     this_total = monthly_total(expenses, month)
@@ -84,12 +83,14 @@ def spending_trend(expenses, month):
         return None
     return round((this_total - last_total) / last_total * 100, 1)
 
+
 def is_valid_date(text):
     try:
         parsed = datetime.strptime(text, "%Y-%m-%d")
     except ValueError:
         return False
     return parsed.strftime("%Y-%m-%d") == text
+
 
 def is_valid_amount(value):
     try:
@@ -98,28 +99,24 @@ def is_valid_amount(value):
         return False
     return number > 0
 
+
 def is_not_empty(text):
     return bool(text and text.strip())
 
-def display_expenses(category=None):
-    expenses = load_expenses()
-    if category:
-        expenses = filter_by_category(expenses, category)
+
+def display_expenses(expenses):
     console = Console()
     table = Table(title="Your Expenses")
     table.add_column("Date")
     table.add_column("Category")
     table.add_column("Item")
     table.add_column("Amount")
-    for expense in expenses:
-        table.add_row(
-            expense["date"],
-            expense["category"],
-            expense["item"],
-            str(expense["amount"])
-        )
+    for e in expenses:
+        table.add_row(e.date, e.category, e.item, str(e.amount))
     console.print(table)
-def add_expense(date, category, item, amount):
+
+
+def add_expense(tracker, date, category, item, amount):
     if not is_valid_date(date):
         print("Error: date must be a real date in YYYY-MM-DD format, e.g. 2026-10-27.")
         return False
@@ -133,31 +130,24 @@ def add_expense(date, category, item, amount):
         print("Error: amount must be a number greater than 0.")
         return False
 
-    amount = float(amount)
-    category = category.strip()
-    item = item.strip()
-
-    expense = {
-        "date": date,
-        "category": category,
-        "item": item,
-        "amount": amount
-    }
-    if DATA_FILE.exists():
-        with open(DATA_FILE, "r") as file:
-            expenses = json.load(file)
-    else:
-        expenses = []
-    expenses.append(expense)
-
-    with open(DATA_FILE, "w") as file:
-        json.dump(expenses, file, indent=2)
-
-    print(f"Added: {item} - ${amount:.2f} ({category})")
+    expense = Expense(date, category.strip(), item.strip(), float(amount))
+    tracker.add(expense)
+    print(f"Added: {expense.item} - ${expense.amount:.2f} ({expense.category})")
     return True
 
 
-def show_menu():
+def print_trend(tracker, month):
+    last = previous_month(month)
+    trend = tracker.trend(month)
+    if trend is None:
+        print(f"No spending recorded in {last} to compare with.")
+    elif trend >= 0:
+        print(f"Spending in {month} is up {trend}% from {last}.")
+    else:
+        print(f"Spending in {month} is down {abs(trend)}% from {last}.")
+
+
+def show_menu(tracker):
     while True:
         print("\n1. Show all expenses")
         print("2. Show expenses by category")
@@ -168,30 +158,22 @@ def show_menu():
         choice = input("Choose an option: ")
 
         if choice == "1":
-            display_expenses()
+            display_expenses(tracker.expenses)
         elif choice == "2":
             category = input("Category: ")
-            display_expenses(category)
+            display_expenses(tracker.by_category(category))
         elif choice == "3":
             month = input("Month (YYYY-MM): ")
-            total = monthly_total(load_expenses(), month)
-            print(f"Total for {month}: {total}")
+            print(f"Total for {month}: {tracker.monthly_total(month)}")
         elif choice == "4":
             date = input("Date (YYYY-MM-DD): ")
             category = input("Category: ")
             item = input("Item: ")
             amount = input("Amount: ")
-            add_expense(date, category, item, amount)
+            add_expense(tracker, date, category, item, amount)
         elif choice == "5":
             month = input("Month (YYYY-MM): ")
-            last = previous_month(month)
-            trend = spending_trend(load_expenses(), month)
-            if trend is None:
-                print(f"No spending recorded in {last} to compare with.")
-            elif trend >= 0:
-                print(f"Spending in {month} is up {trend}% from {last}.")
-            else:
-                print(f"Spending in {month} is down {abs(trend)}% from {last}.")
+            print_trend(tracker, month)
         elif choice == "6":
             break
         else:
@@ -221,25 +203,21 @@ def build_parser():
 
 
 def main():
+    tracker = ExpenseTracker(DATA_FILE)
     args = build_parser().parse_args()
     if args.command == "add":
-        add_expense(args.date, args.category, args.item, args.amount)
+        add_expense(tracker, args.date, args.category, args.item, args.amount)
     elif args.command == "list":
-        display_expenses(args.category)
-    elif args.command == "summary":
-        total = monthly_total(load_expenses(), args.month)
-        print(f"Total for {args.month}: {total}")
-    elif args.command == "trend":
-        last = previous_month(args.month)
-        trend = spending_trend(load_expenses(), args.month)
-        if trend is None:
-            print(f"No spending recorded in {last} to compare with.")
-        elif trend >= 0:
-            print(f"Spending in {args.month} is up {trend}% from {last}.")
+        if args.category:
+            display_expenses(tracker.by_category(args.category))
         else:
-            print(f"Spending in {args.month} is down {abs(trend)}% from {last}.")
+            display_expenses(tracker.expenses)
+    elif args.command == "summary":
+        print(f"Total for {args.month}: {tracker.monthly_total(args.month)}")
+    elif args.command == "trend":
+        print_trend(tracker, args.month)
     else:
-        show_menu()
+        show_menu(tracker)
 
 
 if __name__ == "__main__":
