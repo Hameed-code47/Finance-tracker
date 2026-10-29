@@ -3,9 +3,6 @@ from src.main import (
     is_valid_date,
     is_valid_amount,
     is_not_empty,
-    monthly_total,
-    filter_by_category,
-    spending_trend,
     Expense,
     ExpenseTracker,
 )
@@ -15,6 +12,13 @@ SAMPLE_EXPENSES = [
     {"date": "2026-09-15", "category": "Transport", "item": "Bus fare", "amount": 3.5},
     {"date": "2026-10-05", "category": "Food", "item": "Lunch", "amount": 12.0},
 ]
+
+
+def make_tracker(tmp_path):
+    tracker = ExpenseTracker(tmp_path / "test_expenses.json")
+    for e in SAMPLE_EXPENSES:
+        tracker.add(Expense.from_dict(e))
+    return tracker
 
 
 def test_previous_month_regular():
@@ -54,21 +58,9 @@ def test_is_not_empty():
     assert is_not_empty(None) is False
 
 
-def test_monthly_total_adds_one_month_only():
-    assert monthly_total(SAMPLE_EXPENSES, "2026-09") == 8.5
-    assert monthly_total(SAMPLE_EXPENSES, "2026-10") == 12.0
-    assert monthly_total(SAMPLE_EXPENSES, "2026-08") == 0
-
-
-def test_filter_by_category_ignores_case():
-    result = filter_by_category(SAMPLE_EXPENSES, "food")
-    assert len(result) == 2
-    assert all(e["category"] == "Food" for e in result)
-
-
-def test_spending_trend():
-    assert spending_trend(SAMPLE_EXPENSES, "2026-10") == 41.2
-    assert spending_trend(SAMPLE_EXPENSES, "2026-09") is None
+def test_expense_dict_round_trip():
+    data = {"date": "2026-10-29", "category": "Food", "item": "Lunch", "amount": 8.5}
+    assert Expense.from_dict(data).to_dict() == data
 
 
 def test_tracker_add_and_reload(tmp_path):
@@ -80,12 +72,6 @@ def test_tracker_add_and_reload(tmp_path):
     assert len(reloaded.expenses) == 1
     assert reloaded.expenses[0].item == "Lunch"
     assert reloaded.expenses[0].amount == 8.5
-
-def make_tracker(tmp_path):
-    tracker = ExpenseTracker(tmp_path / "test_expenses.json")
-    for e in SAMPLE_EXPENSES:
-        tracker.add(Expense.from_dict(e))
-    return tracker
 
 
 def test_tracker_monthly_total(tmp_path):
