@@ -7,6 +7,57 @@ from rich.table import Table
 
 DATA_FILE = Path(__file__).parent / "expenses.json"
 
+class Expense:
+    def __init__(self, date, category, item, amount):
+        self.date = date
+        self.category = category
+        self.item = item
+        self.amount = amount
+
+    def to_dict(self):
+        return {
+            "date": self.date,
+            "category": self.category,
+            "item": self.item,
+            "amount": self.amount,
+        }
+
+    @classmethod
+    def from_dict(cls, data):
+        return cls(data["date"], data["category"], data["item"], data["amount"])
+
+class ExpenseTracker:
+    def __init__(self, data_file):
+        self.data_file = data_file
+        self.expenses = self.load()
+
+    def load(self):
+        if self.data_file.exists():
+            with open(self.data_file, "r") as file:
+                return [Expense.from_dict(item) for item in json.load(file)]
+        return []
+
+    def save(self):
+        with open(self.data_file, "w") as file:
+            json.dump([e.to_dict() for e in self.expenses], file, indent=2)
+
+    def add(self, expense):
+        self.expenses.append(expense)
+        self.save()
+
+    def monthly_total(self, month):
+        return sum(e.amount for e in self.expenses if e.date.startswith(month))
+
+    def by_category(self, category):
+        return [e for e in self.expenses if e.category.lower() == category.lower()]
+
+    def trend(self, month):
+        this_total = self.monthly_total(month)
+        last_total = self.monthly_total(previous_month(month))
+        if last_total == 0:
+            return None
+        return round((this_total - last_total) / last_total * 100, 1)
+
 def load_expenses():
     if DATA_FILE.exists():
         with open(DATA_FILE, "r") as file:

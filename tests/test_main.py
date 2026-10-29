@@ -6,6 +6,8 @@ from src.main import (
     monthly_total,
     filter_by_category,
     spending_trend,
+    Expense,
+    ExpenseTracker,
 )
 
 SAMPLE_EXPENSES = [
@@ -67,3 +69,38 @@ def test_filter_by_category_ignores_case():
 def test_spending_trend():
     assert spending_trend(SAMPLE_EXPENSES, "2026-10") == 41.2
     assert spending_trend(SAMPLE_EXPENSES, "2026-09") is None
+
+
+def test_tracker_add_and_reload(tmp_path):
+    data_file = tmp_path / "test_expenses.json"
+    tracker = ExpenseTracker(data_file)
+    tracker.add(Expense("2026-10-29", "Food", "Lunch", 8.5))
+
+    reloaded = ExpenseTracker(data_file)
+    assert len(reloaded.expenses) == 1
+    assert reloaded.expenses[0].item == "Lunch"
+    assert reloaded.expenses[0].amount == 8.5
+
+def make_tracker(tmp_path):
+    tracker = ExpenseTracker(tmp_path / "test_expenses.json")
+    for e in SAMPLE_EXPENSES:
+        tracker.add(Expense.from_dict(e))
+    return tracker
+
+
+def test_tracker_monthly_total(tmp_path):
+    tracker = make_tracker(tmp_path)
+    assert tracker.monthly_total("2026-09") == 8.5
+    assert tracker.monthly_total("2026-08") == 0
+
+
+def test_tracker_by_category(tmp_path):
+    tracker = make_tracker(tmp_path)
+    result = tracker.by_category("food")
+    assert len(result) == 2
+
+
+def test_tracker_trend(tmp_path):
+    tracker = make_tracker(tmp_path)
+    assert tracker.trend("2026-10") == 41.2
+    assert tracker.trend("2026-09") is None
