@@ -60,29 +60,18 @@ class ExpenseTracker:
             return None
         return round((this_total - last_total) / last_total * 100, 1)
 
-
-def filter_by_category(expenses, category):
-    return [e for e in expenses if e["category"].lower() == category.lower()]
-
-
-def monthly_total(expenses, month):
-    return sum(e["amount"] for e in expenses if e["date"].startswith(month))
-
+    def category_totals(self):
+        totals = {}
+        for e in self.expenses:
+            name = e.category.title()
+            totals[name] = totals.get(name, 0) + e.amount
+        return totals
 
 def previous_month(month):
     year, mon = map(int, month.split("-"))
     if mon == 1:
         return f"{year - 1}-12"
     return f"{year}-{mon - 1:02d}"
-
-
-def spending_trend(expenses, month):
-    this_total = monthly_total(expenses, month)
-    last_total = monthly_total(expenses, previous_month(month))
-    if last_total == 0:
-        return None
-    return round((this_total - last_total) / last_total * 100, 1)
-
 
 def is_valid_date(text):
     try:
@@ -106,15 +95,31 @@ def is_not_empty(text):
 
 def display_expenses(expenses):
     console = Console()
-    table = Table(title="Your Expenses")
-    table.add_column("Date")
-    table.add_column("Category")
+    total = sum(e.amount for e in expenses)
+    table = Table(
+        title="Your Expenses",
+        header_style="bold cyan",
+        caption=f"Items: {len(expenses)}   Total: ${total:.2f}",
+        caption_style="bold green",
+    )
+    table.add_column("Date", style="dim")
+    table.add_column("Category", style="magenta")
     table.add_column("Item")
-    table.add_column("Amount")
+    table.add_column("Amount", justify="right", style="green")
     for e in expenses:
-        table.add_row(e.date, e.category, e.item, str(e.amount))
+        table.add_row(e.date, e.category, e.item, f"${e.amount:.2f}")
     console.print(table)
 
+def display_chart(totals):
+    console = Console()
+    if not totals:
+        console.print("No expenses to chart.")
+        return
+    biggest = max(totals.values())
+    console.print("[bold cyan]Spending by category[/bold cyan]")
+    for category, amount in sorted(totals.items(), key=lambda pair: pair[1], reverse=True):
+        bar = "█" * max(1, round(amount / biggest * 30))
+        console.print(f"{category:<12} [green]{bar}[/green] ${amount:.2f}")
 
 def add_expense(tracker, date, category, item, amount):
     if not is_valid_date(date):
@@ -154,7 +159,8 @@ def show_menu(tracker):
         print("3. Show monthly total")
         print("4. Add an expense")
         print("5. Show spending trend")
-        print("6. Quit")
+        print("6. Show spending chart")
+        print("7. Quit")
         choice = input("Choose an option: ")
 
         if choice == "1":
@@ -175,6 +181,8 @@ def show_menu(tracker):
             month = input("Month (YYYY-MM): ")
             print_trend(tracker, month)
         elif choice == "6":
+            display_chart(tracker.category_totals())
+        elif choice == "7":
             break
         else:
             print("Invalid choice")
@@ -199,6 +207,8 @@ def build_parser():
     trend_parser = subparsers.add_parser("trend", help="Compare a month with the month before")
     trend_parser.add_argument("month", help="Month as YYYY-MM")
 
+    subparsers.add_parser("chart", help="Show spending by category as a bar chart")
+
     return parser
 
 
@@ -216,6 +226,8 @@ def main():
         print(f"Total for {args.month}: {tracker.monthly_total(args.month)}")
     elif args.command == "trend":
         print_trend(tracker, args.month)
+    elif args.command == "chart":
+        display_chart(tracker.category_totals())
     else:
         show_menu(tracker)
 

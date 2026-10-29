@@ -90,3 +90,7 @@ def test_tracker_trend(tmp_path):
     tracker = make_tracker(tmp_path)
     assert tracker.trend("2026-10") == 41.2
     assert tracker.trend("2026-09") is None
+
+def test_tracker_category_totals(tmp_path):
+    tracker = make_tracker(tmp_path)
+    assert tracker.category_totals() == {"Food": 17.0, "Transport": 3.5}
