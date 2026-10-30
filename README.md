@@ -2,6 +2,12 @@
 
 A command-line expense tracker written in Python. Add expenses, filter them by category, see monthly totals and spending trends, and view a bar chart of spending by category, all in a colored terminal UI built with [rich](https://github.com/Textualize/rich).
 
+## Screenshots
+
+![Expense table](screenshots/table.png)
+
+![Spending chart](screenshots/chart.png)
+
 ## Features
 
 - Add expenses with validation: real dates, positive amounts, no empty fields
