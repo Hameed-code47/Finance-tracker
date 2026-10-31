@@ -1,6 +1,7 @@
 from src.main import (
     previous_month,
     is_valid_date,
+    is_valid_month,
     is_valid_amount,
     is_not_empty,
     Expense,
@@ -94,3 +95,10 @@ def test_tracker_trend(tmp_path):
 def test_tracker_category_totals(tmp_path):
     tracker = make_tracker(tmp_path)
     assert tracker.category_totals() == {"Food": 17.0, "Transport": 3.5}
+
+def test_is_valid_month():
+    assert is_valid_month("2026-10") is True
+    assert is_valid_month("2026-1") is False
+    assert is_valid_month("2026-13") is False
+    assert is_valid_month("abc") is False
+    assert is_valid_month("") is False

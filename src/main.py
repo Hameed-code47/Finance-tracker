@@ -80,6 +80,13 @@ def is_valid_date(text):
         return False
     return parsed.strftime("%Y-%m-%d") == text
 
+def is_valid_month(text):
+    try:
+        parsed = datetime.strptime(text, "%Y-%m")
+    except ValueError:
+        return False
+    return parsed.strftime("%Y-%m") == text
+
 
 def is_valid_amount(value):
     try:
@@ -152,7 +159,17 @@ def add_expense(tracker, date, category, item, amount):
     return True
 
 
+def print_total(tracker, month):
+    if not is_valid_month(month):
+        print("Error: month must be in YYYY-MM format, e.g. 2026-10.")
+        return
+    print(f"Total for {month}: {tracker.monthly_total(month)}")
+
+
 def print_trend(tracker, month):
+    if not is_valid_month(month):
+        print("Error: month must be in YYYY-MM format, e.g. 2026-10.")
+        return
     last = previous_month(month)
     trend = tracker.trend(month)
     if trend is None:
@@ -181,7 +198,7 @@ def show_menu(tracker):
             display_expenses(tracker.by_category(category))
         elif choice == "3":
             month = input("Month (YYYY-MM): ")
-            print(f"Total for {month}: {tracker.monthly_total(month)}")
+            print_total(tracker, month)
         elif choice == "4":
             date = input("Date (YYYY-MM-DD): ")
             category = input("Category: ")
@@ -234,7 +251,7 @@ def main():
         else:
             display_expenses(tracker.expenses)
     elif args.command == "summary":
-        print(f"Total for {args.month}: {tracker.monthly_total(args.month)}")
+        print_total(tracker, args.month)
     elif args.command == "trend":
         print_trend(tracker, args.month)
     elif args.command == "chart":
