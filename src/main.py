@@ -111,15 +111,26 @@ def display_expenses(expenses):
     console.print(table)
 
 def display_chart(totals):
-    console = Console()
+    console = Console(highlight=False)
     if not totals:
         console.print("No expenses to chart.")
         return
+    grand_total = sum(totals.values())
     biggest = max(totals.values())
-    console.print("[bold cyan]Spending by category[/bold cyan]")
-    for category, amount in sorted(totals.items(), key=lambda pair: pair[1], reverse=True):
+    width = max(len(name) for name in totals)
+    colors = ["green", "magenta", "cyan", "yellow", "blue", "red"]
+    ranked = sorted(totals.items(), key=lambda pair: pair[1], reverse=True)
+
+    console.print("[bold cyan]Spending by category[/bold cyan]\n")
+    for index, (category, amount) in enumerate(ranked):
+        color = colors[index % len(colors)]
         bar = "█" * max(1, round(amount / biggest * 30))
-        console.print(f"{category:<12} [green]{bar}[/green] ${amount:.2f}")
+        percent = amount / grand_total * 100
+        console.print(
+            f"[bold]{category:<{width}}[/bold] │ [{color}]{bar}[/{color}] ${amount:.2f} ({percent:.0f}%)"
+        )
+        console.print()
+    console.print(f"[bold]Total:[/bold] ${grand_total:.2f}")
 
 def add_expense(tracker, date, category, item, amount):
     if not is_valid_date(date):
