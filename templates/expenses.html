@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Finance Tracker</title>
+</head>
+<body>
+  <h1>Your Expenses</h1>
+  <table border="1" cellpadding="6">
+    <tr>
+      <th>Date</th>
+      <th>Category</th>
+      <th>Item</th>
+      <th>Amount</th>
+    </tr>
+    {% for e in expenses %}
+    <tr>
+      <td>{{ e.date }}</td>
+      <td>{{ e.category }}</td>
+      <td>{{ e.item }}</td>
+      <td>${{ "%.2f"|format(e.amount) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  <p>Items: {{ expenses|length }} &nbsp; Total: ${{ "%.2f"|format(total) }}</p>
+</body>
+</html>
