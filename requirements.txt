@@ -1,3 +1,4 @@
 rich
 pytest
 flask
+Flask-SQLAlchemy>=3.1,<4
