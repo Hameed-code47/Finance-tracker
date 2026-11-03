@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Expense | Finance Tracker</title>
+</head>
+<body>
+    <h1>Add an expense</h1>
+
+    {% if error %}
+        <p role="alert">{{ error }}</p>
+    {% endif %}
+
+    {% if success %}
+        <p role="status">{{ success }}</p>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('add_expense') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <p>
+            <label for="date">Date</label><br>
+            <input
+                type="date"
+                id="date"
+                name="date"
+                value="{{ request.form.get('date', '') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="category">Category</label><br>
+            <input
+                type="text"
+                id="category"
+                name="category"
+                placeholder="Food, Transport, Bills"
+                maxlength="50"
+                value="{{ request.form.get('category', '') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="item">What did you spend on?</label><br>
+            <input
+                type="text"
+                id="item"
+                name="item"
+                placeholder="Lunch"
+                maxlength="200"
+                value="{{ request.form.get('item', '') }}"
+                required
+            >
+        </p>
+
+        <p>
+            <label for="amount">Amount (₦)</label><br>
+            <input
+                type="number"
+                id="amount"
+                name="amount"
+                placeholder="1250.50"
+                min="0.01"
+                step="0.01"
+                value="{{ request.form.get('amount', '') }}"
+                required
+            >
+        </p>
+
+        <button type="submit">Save expense</button>
+    </form>
+
+    <p><a href="{{ url_for('expenses') }}">Back to expenses</a></p>
+</body>
+</html>

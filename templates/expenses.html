@@ -1,27 +1,46 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Finance Tracker</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Expenses | Finance Tracker</title>
 </head>
 <body>
-  <h1>Your Expenses</h1>
-  <table border="1" cellpadding="6">
-    <tr>
-      <th>Date</th>
-      <th>Category</th>
-      <th>Item</th>
-      <th>Amount</th>
-    </tr>
-    {% for e in expenses %}
-    <tr>
-      <td>{{ e.date }}</td>
-      <td>{{ e.category }}</td>
-      <td>{{ e.item }}</td>
-      <td>${{ "%.2f"|format(e.amount) }}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  <p>Items: {{ expenses|length }} &nbsp; Total: ${{ "%.2f"|format(total) }}</p>
+    <h1>Your Expenses</h1>
+
+    <p>
+        <a href="{{ url_for('add_expense') }}">Add an expense</a>
+    </p>
+
+    {% if expenses %}
+        <table border="1" cellpadding="6">
+            <thead>
+                <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Category</th>
+                    <th scope="col">Item</th>
+                    <th scope="col">Amount</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for expense in expenses %}
+                    <tr>
+                        <td>{{ expense.date.isoformat() }}</td>
+                        <td>{{ expense.category }}</td>
+                        <td>{{ expense.item }}</td>
+                        <td>{{ expense.amount_kobo | naira }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+        <p>
+            Items: {{ expenses | length }}
+            &nbsp; Total: {{ total_kobo | naira }}
+        </p>
+    {% else %}
+        <p>No expenses yet. Add your first expense to get started.</p>
+    {% endif %}
 </body>
 </html>
