@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monthly Summary | Finance Tracker</title>
+</head>
+<body>
+    <h1>Monthly spending summary</h1>
+
+    <nav>
+        <a href="{{ url_for('expenses') }}">All expenses</a>
+        |
+        <a href="{{ url_for('add_expense') }}">Add an expense</a>
+    </nav>
+
+    <form method="GET" action="{{ url_for('summary') }}">
+        <p>
+            <label for="month">Select a month</label>
+            <input
+                type="month"
+                id="month"
+                name="month"
+                value="{{ selected_month }}"
+                required
+            >
+            <button type="submit">View summary</button>
+        </p>
+    </form>
+
+    {% if error %}
+        <p role="alert">{{ error }}</p>
+    {% else %}
+        <h2>{{ month_label }}</h2>
+
+        <p>
+            <strong>Total spending:</strong>
+            {{ total_kobo | naira }}
+        </p>
+
+        <p>
+            <strong>Number of expenses:</strong>
+            {{ expense_count }}
+        </p>
+
+        {% if categories %}
+            <h3>Spending by category</h3>
+
+            <table border="1" cellpadding="6">
+                <thead>
+                    <tr>
+                        <th scope="col">Category</th>
+                        <th scope="col">Total</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for category, amount_kobo in categories %}
+                        <tr>
+                            <td>{{ category }}</td>
+                            <td>{{ amount_kobo | naira }}</td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            <p>No expenses recorded for this month.</p>
+        {% endif %}
+    {% endif %}
+</body>
+</html>

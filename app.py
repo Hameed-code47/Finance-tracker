@@ -19,6 +19,7 @@ from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
+from calendar import monthrange
 
 from models import db, User, Expense
 
@@ -187,6 +188,71 @@ def add_expense():
     flash("Expense saved successfully.")
     return redirect(url_for("add_expense"))
 
+@app.route("/summary")
+def summary():
+    # Default to the current month.
+    selected_month = request.args.get(
+        "month", date.today().strftime("%Y-%m")
+    ).strip()
+
+    # Validate the month before querying the database.
+    try:
+        if not re.fullmatch(r"[0-9]{4}-[0-9]{2}", selected_month):
+            raise ValueError
+
+        year, month = map(int, selected_month.split("-"))
+        first_day = date(year, month, 1)
+        last_day = date(year, month, monthrange(year, month)[1])
+    except ValueError:
+        return render_template(
+            "summary.html",
+            error="Choose a valid month in YYYY-MM format.",
+            selected_month="",
+        ), 400
+
+    # Temporary demo account until login is implemented.
+    user = db.session.execute(
+        db.select(User).where(User.email == "demo@example.com")
+    ).scalar_one_or_none()
+
+    if user is None:
+        return "Demo user not found. Create the sample user first.", 404
+
+    monthly_expenses = db.session.execute(
+        db.select(Expense).where(
+            Expense.user_id == user.id,
+            Expense.date >= first_day,
+            Expense.date <= last_day,
+        )
+    ).scalars().all()
+
+    total_kobo = sum(
+        expense.amount_kobo for expense in monthly_expenses
+    )
+
+    category_totals = {}
+
+    for expense in monthly_expenses:
+        # Group "food", "Food", and "FOOD" together.
+        category = expense.category.strip().title()
+        category_totals[category] = (
+            category_totals.get(category, 0) + expense.amount_kobo
+        )
+
+    # Highest spending first; alphabetical order breaks ties.
+    ranked_categories = sorted(
+        category_totals.items(),
+        key=lambda pair: (-pair[1], pair[0]),
+    )
+
+    return render_template(
+        "summary.html",
+        selected_month=selected_month,
+        month_label=first_day.strftime("%B %Y"),
+        total_kobo=total_kobo,
+        expense_count=len(monthly_expenses),
+        categories=ranked_categories,
+    )
 
 if __name__ == "__main__":
     app.run(debug=True)
