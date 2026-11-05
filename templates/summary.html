@@ -45,6 +45,18 @@
 
         {% if categories %}
             <h3>Spending by category</h3>
+            <div style="position: relative; width: 100%; max-width: 800px;">
+    <canvas
+        id="categoryChart"
+        role="img"
+        aria-label="Spending by category for {{ month_label }}. Exact amounts are listed in the table below."
+    ></canvas>
+</div>
+
+<p id="chartMessage" role="status">
+    The chart requires JavaScript and an internet connection.
+    Exact amounts are listed below.
+</p>
 
             <table border="1" cellpadding="6">
                 <thead>
@@ -66,5 +78,112 @@
             <p>No expenses recorded for this month.</p>
         {% endif %}
     {% endif %}
+    
+    {% if categories and not error %}
+    <script
+        id="category-data"
+        type="application/json"
+    >{{ categories | tojson }}</script>
+
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js"></script>
+
+    <script>
+        const categoryData = JSON.parse(
+            document.getElementById("category-data").textContent
+        );
+
+        const canvas = document.getElementById("categoryChart");
+        const message = document.getElementById("chartMessage");
+
+        if (typeof Chart === "undefined") {
+            canvas.hidden = true;
+            message.textContent =
+                "The chart could not load. You can still read the totals below.";
+        } else {
+            const currency = new Intl.NumberFormat("en-NG", {
+                style: "currency",
+                currency: "NGN",
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            });
+
+            const palette = [
+                "#0f766e",
+                "#2563eb",
+                "#9333ea",
+                "#c2410c",
+                "#be185d",
+                "#475569"
+            ];
+
+            // Keep each category's color stable when its ranking changes.
+            function categoryColor(label) {
+                let hash = 0;
+
+                for (const character of label) {
+                    hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+                }
+
+                return palette[hash % palette.length];
+            }
+
+            // Allow more vertical space when there are more categories.
+            canvas.parentElement.style.height =
+                `${Math.max(280, categoryData.length * 48 + 70)}px`;
+
+            new Chart(canvas, {
+                type: "bar",
+                data: {
+                    labels: categoryData.map(([category]) => category),
+                    datasets: [{
+                        label: "Spending",
+                        data: categoryData.map(([, kobo]) => kobo / 100),
+                        backgroundColor: categoryData.map(
+                            ([category]) => categoryColor(category)
+                        ),
+                        borderRadius: 4,
+                        maxBarThickness: 32
+                    }]
+                },
+                options: {
+                    indexAxis: "y",
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (context) =>
+                                    currency.format(context.parsed.x)
+                            }
+                        }
+                    },
+                    scales: {
+                        x: {
+                            beginAtZero: true,
+                            title: {
+                                display: true,
+                                text: "Amount (NGN)"
+                            },
+                            ticks: {
+                                callback: (value) =>
+                                    currency.format(value)
+                            }
+                        },
+                        y: {
+                            grid: {
+                                display: false
+                            }
+                        }
+                    }
+                }
+            });
+
+            message.hidden = true;
+        }
+    </script>
+{% endif %}
 </body>
 </html>
