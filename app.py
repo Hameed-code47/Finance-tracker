@@ -58,9 +58,6 @@ def shell_context():
     }
 
 
-@app.route("/")
-def home():
-    return "Hello from Finance Tracker!"
 
 @app.template_filter("naira")
 def format_naira(amount_kobo):
@@ -188,6 +185,8 @@ def add_expense():
     flash("Expense saved successfully.")
     return redirect(url_for("add_expense"))
 
+
+@app.route("/", endpoint="home")
 @app.route("/summary")
 def summary():
     # Default to the current month.
@@ -219,11 +218,13 @@ def summary():
         return "Demo user not found. Create the sample user first.", 404
 
     monthly_expenses = db.session.execute(
-        db.select(Expense).where(
+        db.select(Expense)
+        .where(
             Expense.user_id == user.id,
             Expense.date >= first_day,
             Expense.date <= last_day,
         )
+        .order_by(Expense.date.desc(), Expense.id.desc())
     ).scalars().all()
 
     total_kobo = sum(

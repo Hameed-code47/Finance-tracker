@@ -6,7 +6,9 @@
     <title>Monthly Summary | Finance Tracker</title>
 </head>
 <body>
-    <h1>Monthly spending summary</h1>
+
+    {% set is_dashboard = request.endpoint == "home" %}
+<h1>{{ "Spending dashboard" if is_dashboard else "Monthly spending summary" }}</h1>
 
     <nav>
         <a href="{{ url_for('expenses') }}">All expenses</a>
@@ -14,7 +16,7 @@
         <a href="{{ url_for('add_expense') }}">Add an expense</a>
     </nav>
 
-    <form method="GET" action="{{ url_for('summary') }}">
+    <form method="GET" action="{{ url_for(request.endpoint) }}">
         <p>
             <label for="month">Select a month</label>
             <input
@@ -27,6 +29,30 @@
             <button type="submit">View summary</button>
         </p>
     </form>
+
+    {% if is_dashboard and recent_expenses and not error %}
+    <section>
+        <h2>Recent expenses</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">Item</th>
+                    <th scope="col">Amount</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for expense in recent_expenses %}
+                    <tr>
+                        <td>{{ expense.date.isoformat() }}</td>
+                        <td>{{ expense.item }}</td>
+                        <td>{{ expense.amount_kobo | naira }}</td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </section>
+{% endif %}
 
     {% if error %}
         <p role="alert">{{ error }}</p>
