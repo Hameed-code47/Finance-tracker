@@ -18,10 +18,11 @@ from flask import (
 from flask_wtf.csrf import CSRFProtect
 from sqlalchemy import event
 from sqlalchemy.engine import Engine
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from calendar import monthrange
-
+from email_validator import validate_email, EmailNotValidError
 from models import db, User, Expense
+from flask_login import LoginManager
 
 @event.listens_for(Engine, "connect")
 def enable_sqlite_foreign_keys(connection, connection_record):
@@ -40,6 +41,22 @@ app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 
 db.init_app(app)
 csrf = CSRFProtect(app)
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    try:
+        user_id = int(user_id)
+    except (TypeError, ValueError):
+        return None
+
+    if user_id < 1 or user_id > 9223372036854775807:
+        return None
+
+    return db.session.get(User, user_id)
 
 
 @app.cli.command("init-db")
@@ -254,6 +271,109 @@ def summary():
         expense_count=len(monthly_expenses),
         categories=ranked_categories,
     )
+@app.route("/register", methods=["GET", "POST"])
+def register():
+    if request.method == "GET":
+        messages = get_flashed_messages(category_filter=["registration"])
 
+        return render_template(
+            "register.html",
+            success=" ".join(messages),
+        )
+
+    email_text = request.form.get("email", "").strip()
+    password = request.form.get("password", "")
+    confirmation = request.form.get("confirm_password", "")
+
+    # Validate the email and use lowercase for account lookups.
+    try:
+        email_info = validate_email(
+            email_text,
+            check_deliverability=False,
+        )
+        email = email_info.normalized.lower()
+    except EmailNotValidError:
+        return render_template(
+            "register.html",
+            error="Enter a valid email address.",
+        ), 400
+
+    if len(email) > 254:
+        return render_template(
+            "register.html",
+            error="Your email address is too long.",
+        ), 400
+
+    # Check the password requirements.
+    if len(password) < 15:
+        return render_template(
+            "register.html",
+            error="Your password must contain at least 15 characters.",
+        ), 400
+
+    if len(password) > 128:
+        return render_template(
+            "register.html",
+            error="Your password is too long. Please shorten it.",
+        ), 400
+
+    if not any(character.isdigit() for character in password):
+        return render_template(
+            "register.html",
+            error="Your password must include at least one number.",
+        ), 400
+
+    if not any(
+        not character.isalnum() and not character.isspace()
+        for character in password
+    ):
+        return render_template(
+            "register.html",
+            error="Your password must include at least one symbol, such as !, @, or #.",
+        ), 400
+
+    if password != confirmation:
+        return render_template(
+            "register.html",
+            error="The passwords do not match.",
+        ), 400
+
+    # Check whether this email is already registered.
+    existing_user = db.session.execute(
+        db.select(User).where(User.email == email)
+    ).scalar_one_or_none()
+
+    if existing_user is not None:
+        return render_template(
+            "register.html",
+            error="An account with this email already exists.",
+        ), 409
+
+    # Create the account using the model's password-hashing method.
+    user = User(email=email)
+    user.set_password(password)
+
+    try:
+        db.session.add(user)
+        db.session.commit()
+    except IntegrityError:
+        # A duplicate submission can reach the database after our check.
+        db.session.rollback()
+
+        return render_template(
+            "register.html",
+            error="The account could not be created. This email may already be registered.",
+        ), 409
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception("Could not create account")
+
+        return render_template(
+            "register.html",
+            error="We could not save your account. Please try again.",
+        ), 500
+
+    flash("Your account was created successfully.", "registration")
+    return redirect(url_for("register"))
 if __name__ == "__main__":
     app.run(debug=True)

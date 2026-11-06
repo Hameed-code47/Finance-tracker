@@ -4,7 +4,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy import CheckConstraint, ForeignKey, String
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from werkzeug.security import check_password_hash, generate_password_hash
-
+from flask_login import UserMixin
 
 class Base(DeclarativeBase):
     pass
@@ -13,7 +13,7 @@ class Base(DeclarativeBase):
 db = SQLAlchemy(model_class=Base)
 
 
-class User(db.Model):
+class User( UserMixin, db.Model):
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(primary_key=True)
