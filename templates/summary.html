@@ -15,7 +15,16 @@
         |
         <a href="{{ url_for('add_expense') }}">Add an expense</a>
     </nav>
+<p>Signed in as {{ current_user.email }}</p>
 
+<form method="POST" action="{{ url_for('logout') }}">
+    <input
+        type="hidden"
+        name="csrf_token"
+        value="{{ csrf_token() }}"
+    >
+    <button type="submit">Log out</button>
+</form>
     <form method="GET" action="{{ url_for(request.endpoint) }}">
         <p>
             <label for="month">Select a month</label>
