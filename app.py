@@ -36,10 +36,9 @@ from sqlalchemy import event, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from werkzeug.security import generate_password_hash
-
 from email_service import send_email
 from models import db, User, Expense
-
+from flask import abort
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -506,6 +505,72 @@ def expenses():
     )
 
 
+# Shared validation for adding and editing expenses.
+
+def validate_expense_form(form):
+    date_text = form.get("date", "").strip()
+    category = form.get("category", "").strip()
+    item = form.get("item", "").strip()
+    amount_text = form.get("amount", "").strip()
+
+    try:
+        expense_date = date.fromisoformat(date_text)
+
+        if expense_date.isoformat() != date_text:
+            raise ValueError
+    except ValueError:
+        raise ValueError(
+            "Enter a real date in YYYY-MM-DD format."
+        ) from None
+
+    if not category or len(category) > 50:
+        raise ValueError(
+            "Category must contain between 1 and 50 characters."
+        )
+
+    if not item or len(item) > 200:
+        raise ValueError(
+            "Item must contain between 1 and 200 characters."
+        )
+
+    if not re.fullmatch(r"[0-9]{1,12}(?:\.[0-9]{1,2})?", amount_text):
+        raise ValueError(
+            "Enter an amount such as 1250.50, without commas or "
+            "a currency symbol. Use at most 12 digits before the "
+            "decimal point and 2 after it."
+        )
+
+    amount = Decimal(amount_text)
+
+    if amount <= 0:
+        raise ValueError("Amount must be greater than zero.")
+
+    return {
+        "date": expense_date,
+        "category": category,
+        "item": item,
+        "amount_kobo": int(amount * 100),
+    }
+
+
+def owned_expense_or_404(expense_id):
+    # Keep values within SQLite's integer range.
+    if not 1 <= expense_id <= 9223372036854775807:
+        abort(404)
+
+    expense = db.session.execute(
+        db.select(Expense).where(
+            Expense.id == expense_id,
+            Expense.user_id == current_user.id,
+        )
+    ).scalar_one_or_none()
+
+    if expense is None:
+        abort(404)
+
+    return expense
+
+
 # Add an expense.
 
 @app.route("/expenses/new", methods=["GET", "POST"])
@@ -513,62 +578,27 @@ def expenses():
 def add_expense():
     if request.method == "GET":
         messages = get_flashed_messages()
+
         return render_template(
             "add_expense.html",
+            edit_mode=False,
+            form_values={},
             success=" ".join(messages),
         )
 
-    date_text = request.form.get("date", "").strip()
-    category = request.form.get("category", "").strip()
-    item = request.form.get("item", "").strip()
-    amount_text = request.form.get("amount", "").strip()
-
     try:
-        expense_date = date.fromisoformat(date_text)
-        if expense_date.isoformat() != date_text:
-            raise ValueError
-    except ValueError:
+        values = validate_expense_form(request.form)
+    except ValueError as error:
         return render_template(
             "add_expense.html",
-            error="Enter a real date in YYYY-MM-DD format.",
-        ), 400
-
-    if not category or len(category) > 50:
-        return render_template(
-            "add_expense.html",
-            error="Category must contain between 1 and 50 characters.",
-        ), 400
-
-    if not item or len(item) > 200:
-        return render_template(
-            "add_expense.html",
-            error="Item must contain between 1 and 200 characters.",
-        ), 400
-
-    if not re.fullmatch(r"[0-9]{1,12}(?:\.[0-9]{1,2})?", amount_text):
-        return render_template(
-            "add_expense.html",
-            error=(
-                "Enter an amount such as 1250.50, without commas or "
-                "a currency symbol. Use at most 12 digits before the "
-                "decimal point and 2 after it."
-            ),
-        ), 400
-
-    amount = Decimal(amount_text)
-
-    if amount <= 0:
-        return render_template(
-            "add_expense.html",
-            error="Amount must be greater than zero.",
+            edit_mode=False,
+            form_values=request.form,
+            error=str(error),
         ), 400
 
     expense = Expense(
         user_id=current_user.id,
-        date=expense_date,
-        category=category,
-        item=item,
-        amount_kobo=int(amount * 100),
+        **values,
     )
 
     try:
@@ -577,13 +607,78 @@ def add_expense():
     except SQLAlchemyError:
         db.session.rollback()
         app.logger.exception("Could not save expense")
+
         return render_template(
             "add_expense.html",
+            edit_mode=False,
+            form_values=request.form,
             error="The expense could not be saved. Please try again.",
         ), 500
 
     flash("Expense saved successfully.")
     return redirect(url_for("add_expense"))
+
+
+# Edit an expense belonging to the signed-in user.
+
+@app.route(
+    "/expenses/<int:expense_id>/edit",
+    methods=["GET", "POST"],
+)
+@login_required
+def edit_expense(expense_id):
+    expense = owned_expense_or_404(expense_id)
+
+    if request.method == "GET":
+        form_values = {
+            "date": expense.date.isoformat(),
+            "category": expense.category,
+            "item": expense.item,
+            "amount": (
+                f"{expense.amount_kobo // 100}."
+                f"{expense.amount_kobo % 100:02d}"
+            ),
+        }
+
+        return render_template(
+            "add_expense.html",
+            edit_mode=True,
+            expense_id=expense_id,
+            form_values=form_values,
+        )
+
+    try:
+        values = validate_expense_form(request.form)
+    except ValueError as error:
+        return render_template(
+            "add_expense.html",
+            edit_mode=True,
+            expense_id=expense_id,
+            form_values=request.form,
+            error=str(error),
+        ), 400
+
+    expense.date = values["date"]
+    expense.category = values["category"]
+    expense.item = values["item"]
+    expense.amount_kobo = values["amount_kobo"]
+
+    try:
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception("Could not update expense")
+
+        return render_template(
+            "add_expense.html",
+            edit_mode=True,
+            expense_id=expense_id,
+            form_values=request.form,
+            error="The changes could not be saved. Please try again.",
+        ), 500
+
+    flash("Expense updated successfully.", "expense")
+    return redirect(url_for("expenses"))
 
 
 # Dashboard and monthly summary.

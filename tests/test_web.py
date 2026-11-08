@@ -391,3 +391,198 @@ def test_reset_invalidates_an_existing_login(
 
     assert response.status_code == 302
     assert urlsplit(response.headers["Location"]).path == "/login"
+def find_test_expense_id(web_module, item):
+    with web_module.app.app_context():
+        expense = web_module.db.session.execute(
+            web_module.db.select(web_module.Expense).where(
+                web_module.Expense.item == item
+            )
+        ).scalar_one()
+
+        return expense.id
+
+
+def test_edit_own_expense(web_client, web_module):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+    path = f"/expenses/{expense_id}/edit"
+
+    response = web_client.get(path)
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert 'value="Alice private lunch"' in page
+    assert 'value="1250.50"' in page
+
+    response = post_form(
+        web_client,
+        path,
+        {
+            "date": "2026-02-15",
+            "category": "Transport",
+            "item": "Updated bus fare",
+            "amount": "650.75",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with web_module.app.app_context():
+        expense = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert expense.item == "Updated bus fare"
+        assert expense.category == "Transport"
+        assert expense.date.isoformat() == "2026-02-15"
+        assert expense.amount_kobo == 65075
+        assert expense.user.email == ALICE_EMAIL
+
+        # Editing must not create another expense.
+        records = web_module.db.session.execute(
+            web_module.db.select(web_module.Expense)
+        ).scalars().all()
+
+        assert len(records) == 2
+
+    page = web_client.get("/expenses").get_data(as_text=True)
+    assert "Expense updated successfully." in page
+    assert "Updated bus fare" in page
+    assert "₦650.75" in page
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_cannot_edit_another_users_expense(
+    web_client,
+    web_module,
+    method,
+):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Bob private purchase",
+    )
+    path = f"/expenses/{expense_id}/edit"
+
+    if method == "GET":
+        response = web_client.get(path)
+    else:
+        # Submit a valid CSRF token so this checks ownership,
+        # rather than merely being rejected by CSRF protection.
+        response = post_form(
+            web_client,
+            "/expenses/new",
+            {
+                "date": "2026-01-20",
+                "category": "Changed",
+                "item": "Attempted modification",
+                "amount": "1.00",
+            },
+            target=path,
+        )
+
+    assert response.status_code == 404
+    assert "Bob private purchase" not in response.get_data(as_text=True)
+
+    with web_module.app.app_context():
+        expense = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert expense.item == "Bob private purchase"
+        assert expense.amount_kobo == 900000
+        assert expense.user.email == "bob@example.com"
+
+
+def test_edit_missing_expense_returns_404(web_client):
+    login(web_client)
+
+    response = web_client.get("/expenses/999999/edit")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize(
+    "field,bad_value",
+    [
+        ("date", "2026-02-30"),
+        ("category", "   "),
+        ("amount", "-10"),
+    ],
+)
+def test_invalid_edit_leaves_expense_unchanged(
+    web_client,
+    web_module,
+    field,
+    bad_value,
+):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+    path = f"/expenses/{expense_id}/edit"
+
+    submitted = {
+        "date": "2026-01-20",
+        "category": "Transport",
+        "item": "Unsaved correction",
+        "amount": "500.00",
+    }
+    submitted[field] = bad_value
+
+    response = post_form(web_client, path, submitted)
+
+    assert response.status_code == 400
+
+    # Preserve the user's entered item so they can correct the error.
+    assert 'value="Unsaved correction"' in response.get_data(as_text=True)
+
+    with web_module.app.app_context():
+        expense = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert expense.item == "Alice private lunch"
+        assert expense.category == "Food"
+        assert expense.date.isoformat() == "2026-01-10"
+        assert expense.amount_kobo == 125050
+
+
+def test_edit_without_csrf_is_rejected(web_client, web_module):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+
+    response = web_client.post(
+        f"/expenses/{expense_id}/edit",
+        data={
+            "date": "2026-01-20",
+            "category": "Food",
+            "item": "Should not save",
+            "amount": "1.00",
+        },
+    )
+
+    assert response.status_code == 400
+
+    with web_module.app.app_context():
+        expense = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert expense.item == "Alice private lunch"
+        assert expense.amount_kobo == 125050

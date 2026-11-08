@@ -17,6 +17,12 @@
         </a>
     </div>
 
+    {% for message in get_flashed_messages(category_filter=["expense"]) %}
+        <div class="message" role="status">
+            <p>{{ message }}</p>
+        </div>
+    {% endfor %}
+
     <section class="stats stats-two" aria-label="All-time expense totals">
         <div class="stat">
             <p class="stat-label">Total spending</p>
@@ -51,12 +57,14 @@
                  role="region"
                  aria-label="Expense history"
                  aria-describedby="table-note">
-                <table class="expense-table">
+
+                <table class="expense-table expense-table-actions">
                     <colgroup>
                         <col class="date-column">
                         <col class="category-column">
                         <col class="item-column">
                         <col class="amount-column">
+                        <col class="actions-column">
                     </colgroup>
 
                     <thead>
@@ -65,6 +73,7 @@
                             <th scope="col">Category</th>
                             <th scope="col">Item</th>
                             <th scope="col" class="amount">Amount</th>
+                            <th scope="col" class="row-actions">Actions</th>
                         </tr>
                     </thead>
 
@@ -76,14 +85,25 @@
                                         {{ expense.date.strftime("%d %b %Y") }}
                                     </time>
                                 </td>
+
                                 <td>
                                     <span class="category-tag">
                                         {{ expense.category }}
                                     </span>
                                 </td>
+
                                 <td>{{ expense.item }}</td>
+
                                 <td class="amount">
                                     {{ expense.amount_kobo | naira }}
+                                </td>
+
+                                <td class="row-actions">
+                                    <a href="{{ url_for('edit_expense',
+                                                       expense_id=expense.id) }}"
+                                       aria-label="Edit expense: {{ expense.item }}">
+                                        Edit
+                                    </a>
                                 </td>
                             </tr>
                         {% endfor %}
@@ -104,6 +124,7 @@
                 Record something you’ve spent money on.
                 It will appear here and in your monthly summary.
             </p>
+
             <a href="{{ url_for('add_expense') }}" class="button">
                 Add your first expense
             </a>

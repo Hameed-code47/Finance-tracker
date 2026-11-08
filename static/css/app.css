@@ -708,3 +708,29 @@ td.amount {
         width: 100%;
     }
 }
+/* Expense table with action links */
+
+.expense-table-actions {
+    min-width: 700px;
+}
+
+.expense-table-actions .date-column { width: 17%; }
+.expense-table-actions .category-column { width: 18%; }
+.expense-table-actions .item-column { width: 25%; }
+.expense-table-actions .amount-column { width: 24%; }
+.expense-table-actions .actions-column { width: 16%; }
+
+.row-actions {
+    text-align: right;
+}
+
+.row-actions a {
+    display: inline-block;
+    padding: 6px 8px;
+    border-radius: 6px;
+    font-size: 13px;
+}
+
+.row-actions a:hover {
+    background: var(--soft);
+}
