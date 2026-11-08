@@ -41,6 +41,7 @@ from models import db, User, Expense
 from flask import abort
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -87,6 +88,16 @@ is_production = os.environ.get("APP_ENV", "development") == "production"
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 app.config["SESSION_COOKIE_SECURE"] = is_production
+
+if is_production and os.environ.get("RENDER") == "true":
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=int(os.environ.get("TRUSTED_PROXY_HOPS", "0")),
+        x_proto=1,
+        x_host=0,
+        x_port=0,
+        x_prefix=0,
+    )
 
 db.init_app(app)
 csrf = CSRFProtect(app)
