@@ -680,7 +680,37 @@ def edit_expense(expense_id):
     flash("Expense updated successfully.", "expense")
     return redirect(url_for("expenses"))
 
+# Confirm and delete an expense belonging to the signed-in user.
 
+@app.route(
+    "/expenses/<int:expense_id>/delete",
+    methods=["GET", "POST"],
+)
+@login_required
+def delete_expense(expense_id):
+    expense = owned_expense_or_404(expense_id)
+
+    if request.method == "GET":
+        return render_template(
+            "delete_expense.html",
+            expense=expense,
+        )
+
+    try:
+        db.session.delete(expense)
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.exception("Could not delete expense")
+
+        return render_template(
+            "delete_expense.html",
+            expense=expense,
+            error="The expense could not be deleted. Please try again.",
+        ), 500
+
+    flash("Expense deleted successfully.", "expense")
+    return redirect(url_for("expenses"))
 # Dashboard and monthly summary.
 
 @app.route("/", endpoint="home")

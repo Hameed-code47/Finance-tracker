@@ -734,3 +734,32 @@ td.amount {
 .row-actions a:hover {
     background: var(--soft);
 }
+/* Delete confirmation */
+
+.delete-details {
+    margin: 0;
+}
+
+.delete-details > div {
+    display: grid;
+    grid-template-columns: 90px minmax(0, 1fr);
+    gap: 16px;
+    padding: 14px 0;
+    border-bottom: 1px solid var(--border);
+}
+
+.delete-details > div:last-child {
+    border-bottom: 0;
+}
+
+.delete-details dt {
+    color: var(--muted);
+    font-size: 13px;
+}
+
+.delete-details dd {
+    margin: 0;
+    font-weight: 600;
+    overflow-wrap: anywhere;
+    font-variant-numeric: tabular-nums;
+}

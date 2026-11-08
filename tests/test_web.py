@@ -586,3 +586,181 @@ def test_edit_without_csrf_is_rejected(web_client, web_module):
 
         assert expense.item == "Alice private lunch"
         assert expense.amount_kobo == 125050
+def test_delete_confirmation_does_not_remove_expense(
+    web_client,
+    web_module,
+):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+
+    response = web_client.get(f"/expenses/{expense_id}/delete")
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "Delete this expense?" in page
+    assert "Alice private lunch" in page
+    assert "₦1,250.50" in page
+
+    with web_module.app.app_context():
+        expense = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert expense is not None
+
+    # Returning to the list without submitting also leaves it intact.
+    response = web_client.get("/expenses")
+
+    assert "Alice private lunch" in response.get_data(as_text=True)
+
+
+def test_delete_own_expense(web_client, web_module):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+
+    response = post_form(
+        web_client,
+        f"/expenses/{expense_id}/delete",
+        {},
+    )
+
+    assert response.status_code == 302
+    assert urlsplit(response.headers["Location"]).path == "/expenses"
+
+    with web_module.app.app_context():
+        deleted = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert deleted is None
+
+        remaining = web_module.db.session.execute(
+            web_module.db.select(web_module.Expense)
+        ).scalars().all()
+
+        assert len(remaining) == 1
+        assert remaining[0].item == "Bob private purchase"
+
+    page = web_client.get("/expenses").get_data(as_text=True)
+
+    assert "Expense deleted successfully." in page
+    assert "Alice private lunch" not in page
+    assert "₦0.00" in page
+
+    summary_page = web_client.get(
+        "/summary?month=2026-01"
+    ).get_data(as_text=True)
+
+    assert "₦0.00" in summary_page
+    assert "No expenses this month" in summary_page
+
+    # A second attempt cannot delete the same record again.
+    assert web_client.get(
+        f"/expenses/{expense_id}/delete"
+    ).status_code == 404
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_cannot_delete_another_users_expense(
+    web_client,
+    web_module,
+    method,
+):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Bob private purchase",
+    )
+    path = f"/expenses/{expense_id}/delete"
+
+    if method == "GET":
+        response = web_client.get(path)
+    else:
+        response = post_form(
+            web_client,
+            "/expenses/new",
+            {},
+            target=path,
+        )
+
+    assert response.status_code == 404
+    assert "Bob private purchase" not in response.get_data(as_text=True)
+
+    with web_module.app.app_context():
+        expense = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert expense is not None
+        assert expense.user.email == "bob@example.com"
+
+
+def test_delete_without_csrf_is_rejected(web_client, web_module):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+
+    response = web_client.post(
+        f"/expenses/{expense_id}/delete",
+        data={},
+    )
+
+    assert response.status_code == 400
+
+    with web_module.app.app_context():
+        assert web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        ) is not None
+
+
+def test_delete_missing_expense_returns_404(web_client):
+    login(web_client)
+
+    response = web_client.get("/expenses/999999/delete")
+
+    assert response.status_code == 404
+
+
+@pytest.mark.parametrize("method", ["GET", "POST"])
+def test_delete_requires_login(web_client, web_module, method):
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+    path = f"/expenses/{expense_id}/delete"
+
+    if method == "GET":
+        response = web_client.get(path)
+    else:
+        # Obtain a valid CSRF token without signing in.
+        response = post_form(
+            web_client,
+            "/login",
+            {},
+            target=path,
+        )
+
+    assert response.status_code == 302
+    assert urlsplit(response.headers["Location"]).path == "/login"
+
+    with web_module.app.app_context():
+        assert web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        ) is not None

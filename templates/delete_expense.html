@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Delete Expense | Finance Tracker{% endblock %}
+
+{% block content %}
+    <a href="{{ url_for('expenses') }}" class="back-link">
+        ← Back to expenses
+    </a>
+
+    <div class="page-heading">
+        <div>
+            <p class="eyebrow">Your finances, clearly</p>
+            <h1>Delete this expense?</h1>
+            <p class="subtitle">
+                Review the details before removing this record.
+            </p>
+        </div>
+    </div>
+
+    <section class="form-panel" aria-labelledby="details-heading">
+        <h2 id="details-heading">Expense details</h2>
+
+        <p class="panel-description">
+            Deleting this expense will update your spending totals.
+            This action cannot be undone.
+        </p>
+
+        {% if error %}
+            <div class="message" role="alert">
+                <strong>Expense not deleted</strong>
+                <p>{{ error }}</p>
+            </div>
+        {% endif %}
+
+        <dl class="delete-details">
+            <div>
+                <dt>Date</dt>
+                <dd>
+                    <time datetime="{{ expense.date.isoformat() }}">
+                        {{ expense.date.strftime("%d %b %Y") }}
+                    </time>
+                </dd>
+            </div>
+
+            <div>
+                <dt>Category</dt>
+                <dd>{{ expense.category }}</dd>
+            </div>
+
+            <div>
+                <dt>Item</dt>
+                <dd>{{ expense.item }}</dd>
+            </div>
+
+            <div>
+                <dt>Amount</dt>
+                <dd>{{ expense.amount_kobo | naira }}</dd>
+            </div>
+        </dl>
+
+        <form method="POST"
+              action="{{ url_for('delete_expense', expense_id=expense.id) }}">
+            <input type="hidden"
+                   name="csrf_token"
+                   value="{{ csrf_token() }}">
+
+            <div class="form-actions">
+                <a href="{{ url_for('expenses') }}"
+                   class="button button-secondary">
+                    Cancel
+                </a>
+
+                <button type="submit" class="button">
+                    Delete expense
+                </button>
+            </div>
+        </form>
+    </section>
+{% endblock %}
