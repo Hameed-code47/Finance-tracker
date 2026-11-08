@@ -1173,3 +1173,96 @@ def test_login_uses_generic_message_for_invalid_credentials(
     assert f'value="{email}"' in page
     assert password not in page
     assert web_client.get("/expenses").status_code == 302
+def test_login_rate_limit_blocks_sixth_submission(web_client):
+    # Opening the page repeatedly must not use the POST allowance.
+    for _ in range(7):
+        assert web_client.get("/login").status_code == 200
+
+    for _ in range(5):
+        response = login(
+            web_client,
+            password="IncorrectTestingPassword123!",
+        )
+        assert response.status_code == 401
+
+    # Even correct credentials must wait once the limit is reached.
+    response = login(web_client)
+
+    assert response.status_code == 429
+    assert "Too many login attempts" in response.get_data(as_text=True)
+    assert "Retry-After" in response.headers
+    assert web_client.get("/expenses").status_code == 302
+
+    # The login page itself remains accessible.
+    assert web_client.get("/login").status_code == 200
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        ALICE_EMAIL,
+        "unknown@example.com",
+    ],
+)
+def test_reset_rate_limit_blocks_fourth_submission(
+    web_client,
+    web_module,
+    email,
+):
+    for _ in range(5):
+        assert web_client.get("/forgot-password").status_code == 200
+
+    for _ in range(3):
+        response = post_form(
+            web_client,
+            "/forgot-password",
+            {"email": email},
+        )
+        assert response.status_code == 302
+
+    expected_emails = 3 if email == ALICE_EMAIL else 0
+    assert len(web_module.test_sent_emails) == expected_emails
+
+    response = post_form(
+        web_client,
+        "/forgot-password",
+        {"email": email},
+    )
+
+    assert response.status_code == 429
+    assert "Too many password-reset requests" in response.get_data(
+        as_text=True
+    )
+    assert "Retry-After" in response.headers
+
+    # A blocked request must not send another email.
+    assert len(web_module.test_sent_emails) == expected_emails
+    assert web_client.get("/forgot-password").status_code == 200
+
+
+def test_login_rate_limit_is_separate_for_each_ip(
+    web_client,
+    web_module,
+):
+    for _ in range(5):
+        response = login(
+            web_client,
+            password="IncorrectTestingPassword123!",
+        )
+        assert response.status_code == 401
+
+    assert login(web_client).status_code == 429
+
+    other_client = web_module.app.test_client()
+    other_client.environ_base["REMOTE_ADDR"] = "192.0.2.20"
+
+    response = login(
+        other_client,
+        password="IncorrectTestingPassword123!",
+    )
+
+    assert response.status_code == 401
+
+    # This other IP still has allowance to log in.
+    assert login(other_client).status_code == 302
+    assert other_client.get("/expenses").status_code == 200

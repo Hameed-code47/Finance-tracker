@@ -1,6 +1,6 @@
 import importlib
 from datetime import date
-
+from limits.storage import MemoryStorage
 import pytest
 
 
@@ -10,6 +10,7 @@ def web_module(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "sqlite:///:memory:")
     monkeypatch.setenv("SECRET_KEY", "automated-tests-only-secret-key")
     monkeypatch.setenv("APP_BASE_URL", "http://localhost")
+    monkeypatch.setenv("RATELIMIT_STORAGE_URI", "memory://")
 
     module = importlib.import_module("app")
 
@@ -38,6 +39,16 @@ def web_module(monkeypatch):
                 "Web tests stopped: the database is not in memory. "
                 "Check the DATABASE_URL change in app.py."
             )
+            
+    # Use isolated local counters and clear them before each test.
+    # Refuse to reset any external rate-limit storage.
+    with module.app.app_context():
+        if not isinstance(module.limiter.storage, MemoryStorage):
+            pytest.fail(
+                "Web tests stopped: rate-limit storage is not in memory."
+            )
+
+        module.limiter.reset()
 
     # Capture outgoing emails without connecting to Mailtrap.
     sent_emails = []

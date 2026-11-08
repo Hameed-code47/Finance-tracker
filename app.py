@@ -39,6 +39,8 @@ from werkzeug.security import generate_password_hash
 from email_service import send_email
 from models import db, User, Expense
 from flask import abort
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
@@ -67,6 +69,21 @@ app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 db.init_app(app)
 csrf = CSRFProtect(app)
 
+app.config["RATELIMIT_STORAGE_URI"] = os.environ.get(
+    "RATELIMIT_STORAGE_URI",
+    "memory://",
+)
+
+limiter = Limiter(
+    key_func=get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri=app.config["RATELIMIT_STORAGE_URI"],
+    strategy="fixed-window",
+    headers_enabled=True,
+    retry_after="delta-seconds",
+)
+
 login_manager = LoginManager()
 login_manager.init_app(app)
 login_manager.login_view = "login"
@@ -82,7 +99,29 @@ RESET_MESSAGE = (
     "you will receive a password-reset link."
 )
 
+@app.errorhandler(429)
+def rate_limit_exceeded(error):
+    if request.endpoint == "login":
+        return render_template(
+            "login.html",
+            field_errors={},
+            error=(
+                "Too many login attempts from this network. "
+                "Please wait up to one minute before trying again."
+            ),
+        ), 429
 
+    if request.endpoint == "forgot_password":
+        return render_template(
+            "password_recovery.html",
+            mode="request",
+            error=(
+                "Too many password-reset requests from this network. "
+                "Please wait up to 15 minutes before trying again."
+            ),
+        ), 429
+
+    return error.get_response()
 # Shared account helpers.
 
 def password_fingerprint(user, purpose):
@@ -287,6 +326,7 @@ def register():
 # Login and logout.
 
 @app.route("/login", methods=["GET", "POST"])
+@limiter.limit("5 per minute", methods=["POST"])
 def login():
     if current_user.is_authenticated:
         return redirect(url_for("home"))
@@ -418,6 +458,7 @@ def protect_reset_pages(response):
 
 
 @app.route("/forgot-password", methods=["GET", "POST"])
+@limiter.limit("3 per 15 minutes", methods=["POST"])
 def forgot_password():
     if request.method == "GET":
         messages = get_flashed_messages(
