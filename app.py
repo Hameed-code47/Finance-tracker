@@ -292,29 +292,59 @@ def login():
         return redirect(url_for("home"))
 
     if request.method == "GET":
-        return render_template("login.html")
+        return render_template(
+            "login.html",
+            field_errors={},
+        )
 
+    email_text = request.form.get("email", "").strip()
     password = request.form.get("password", "")
-    error = "Email or password is incorrect."
 
-    try:
-        email = normalize_email(request.form.get("email", ""))
-    except (EmailNotValidError, ValueError):
-        return render_template("login.html", error=error), 401
+    errors = {}
+    email = None
 
-    if not password or len(password) > 128:
-        return render_template("login.html", error=error), 401
+    if not email_text:
+        errors["email"] = "Enter your email address."
+    else:
+        try:
+            email = normalize_email(email_text)
+        except (EmailNotValidError, ValueError):
+            errors["email"] = "Enter a valid email address."
+
+    if not password:
+        errors["password"] = "Enter your password."
+
+    if errors:
+        return render_template(
+            "login.html",
+            field_errors=errors,
+            error="Check the highlighted fields and try again.",
+        ), 400
+
+    credentials_error = "Email or password is incorrect."
+
+    if len(password) > 128:
+        return render_template(
+            "login.html",
+            field_errors={},
+            error=credentials_error,
+        ), 401
 
     user = db.session.execute(
         db.select(User).where(User.email == email)
     ).scalar_one_or_none()
 
     if user is None or not user.check_password(password):
-        return render_template("login.html", error=error), 401
+        return render_template(
+            "login.html",
+            field_errors={},
+            error=credentials_error,
+        ), 401
 
     session.clear()
     login_user(user, remember=False)
     session["password_marker"] = password_fingerprint(user, "session")
+
     return redirect(url_for("home"))
 
 

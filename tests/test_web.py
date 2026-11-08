@@ -1096,3 +1096,80 @@ def test_registration_without_csrf_is_rejected(
         ).scalar_one_or_none()
 
         assert user is None
+def test_login_shows_errors_for_missing_fields(web_client):
+    response = post_form(
+        web_client,
+        "/login",
+        {
+            "email": "",
+            "password": "",
+        },
+    )
+
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert 'id="email-error"' in page
+    assert 'id="password-error"' in page
+    assert "Enter your email address." in page
+    assert "Enter your password." in page
+    assert web_client.get("/expenses").status_code == 302
+
+
+def test_login_rejects_malformed_email_and_preserves_it(web_client):
+    password = "NeverEchoThisPassword123!"
+
+    response = post_form(
+        web_client,
+        "/login",
+        {
+            "email": "not-an-email",
+            "password": password,
+        },
+    )
+
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert 'id="email-error"' in page
+    assert "Enter a valid email address." in page
+    assert 'value="not-an-email"' in page
+    assert password not in page
+    assert web_client.get("/expenses").status_code == 302
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        ALICE_EMAIL,
+        "unknown@example.com",
+    ],
+)
+def test_login_uses_generic_message_for_invalid_credentials(
+    web_client,
+    email,
+):
+    password = "IncorrectTestingPassword123!"
+
+    response = post_form(
+        web_client,
+        "/login",
+        {
+            "email": email,
+            "password": password,
+        },
+    )
+
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 401
+    assert "Email or password is incorrect." in page
+    assert 'id="login-errors"' in page
+
+    # Do not identify either field as the incorrect credential.
+    assert 'id="email-error"' not in page
+    assert 'id="password-error"' not in page
+
+    assert f'value="{email}"' in page
+    assert password not in page
+    assert web_client.get("/expenses").status_code == 302
