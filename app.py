@@ -2,11 +2,16 @@ from calendar import monthrange
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
+import hashlib
+import hmac
 import os
 import re
+import secrets
+import smtplib
 import sqlite3
 
 import click
+from dotenv import load_dotenv
 from email_validator import EmailNotValidError, validate_email
 from flask import (
     Flask,
@@ -26,14 +31,19 @@ from flask_login import (
     logout_user,
 )
 from flask_wtf.csrf import CSRFProtect
-from sqlalchemy import event
+from itsdangerous import BadSignature, URLSafeTimedSerializer
+from sqlalchemy import event, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
+from werkzeug.security import generate_password_hash
 
+from email_service import send_email
 from models import db, User, Expense
 
 
-# Enable SQLite's checks for relationships between tables.
+load_dotenv(Path(__file__).resolve().parent / ".env")
+
+
 @event.listens_for(Engine, "connect")
 def enable_sqlite_foreign_keys(connection, connection_record):
     if isinstance(connection, sqlite3.Connection):
@@ -42,13 +52,15 @@ def enable_sqlite_foreign_keys(connection, connection_record):
         cursor.close()
 
 
-# Application setup.
 app = Flask(__name__)
-
 Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///finance.db"
 app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
+app.config["APP_BASE_URL"] = os.environ["APP_BASE_URL"].rstrip("/")
+app.config["RESET_TOKEN_MAX_AGE"] = 15 * 60
+app.config["SESSION_COOKIE_HTTPONLY"] = True
+app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
 
 db.init_app(app)
 csrf = CSRFProtect(app)
@@ -58,8 +70,70 @@ login_manager.init_app(app)
 login_manager.login_view = "login"
 login_manager.login_message = "Please log in to access your expenses."
 
+reset_serializer = URLSafeTimedSerializer(
+    app.config["SECRET_KEY"],
+    salt="finance-tracker-password-reset",
+)
 
-# Load the signed-in user from the ID stored in their session.
+RESET_MESSAGE = (
+    "If an account exists for that email, "
+    "you will receive a password-reset link."
+)
+
+
+# Shared account helpers.
+
+def password_fingerprint(user, purpose):
+    """Create a private marker that changes when the password changes."""
+    message = (
+        f"{purpose}:{user.id}:{user.password_hash}"
+    ).encode("utf-8")
+
+    return hmac.new(
+        app.config["SECRET_KEY"].encode("utf-8"),
+        message,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def normalize_email(email_text):
+    info = validate_email(
+        email_text.strip(),
+        check_deliverability=False,
+    )
+    email = info.normalized.lower()
+
+    if len(email) > 254:
+        raise ValueError("Email address is too long.")
+
+    return email
+
+
+def password_error(password, confirmation):
+    if len(password) < 15:
+        return "Your password must contain at least 15 characters."
+
+    if len(password) > 128:
+        return "Your password is too long. Please shorten it."
+
+    if not any(character.isdigit() for character in password):
+        return "Your password must include at least one number."
+
+    if not any(
+        not character.isalnum() and not character.isspace()
+        for character in password
+    ):
+        return (
+            "Your password must include at least one symbol, "
+            "such as !, @, or #."
+        )
+
+    if password != confirmation:
+        return "The passwords do not match."
+
+    return None
+
+
 @login_manager.user_loader
 def load_user(user_id):
     try:
@@ -70,27 +144,36 @@ def load_user(user_id):
     if user_id < 1 or user_id > 9223372036854775807:
         return None
 
-    return db.session.get(User, user_id)
+    user = db.session.get(User, user_id)
+
+    if user is None:
+        return None
+
+    saved_marker = session.get("password_marker")
+
+    if not isinstance(saved_marker, str):
+        return None
+
+    if not hmac.compare_digest(
+        saved_marker,
+        password_fingerprint(user, "session"),
+    ):
+        return None
+
+    return user
 
 
-# Terminal command for creating missing database tables.
 @app.cli.command("init-db")
 def init_db():
     db.create_all()
     click.echo("Database tables created.")
 
 
-# Make these objects available inside the Flask shell.
 @app.shell_context_processor
 def shell_context():
-    return {
-        "db": db,
-        "User": User,
-        "Expense": Expense,
-    }
+    return {"db": db, "User": User, "Expense": Expense}
 
 
-# Format integer kobo as naira in HTML templates.
 @app.template_filter("naira")
 def format_naira(amount_kobo):
     naira, kobo = divmod(amount_kobo, 100)
@@ -98,76 +181,35 @@ def format_naira(amount_kobo):
 
 
 # Registration.
+
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if current_user.is_authenticated:
         return redirect(url_for("home"))
 
     if request.method == "GET":
-        messages = get_flashed_messages(category_filter=["registration"])
-
+        messages = get_flashed_messages(
+            category_filter=["registration"]
+        )
         return render_template(
             "register.html",
             success=" ".join(messages),
         )
 
-    email_text = request.form.get("email", "").strip()
-    password = request.form.get("password", "")
-    confirmation = request.form.get("confirm_password", "")
-
     try:
-        email_info = validate_email(
-            email_text,
-            check_deliverability=False,
-        )
-        email = email_info.normalized.lower()
-    except EmailNotValidError:
+        email = normalize_email(request.form.get("email", ""))
+    except (EmailNotValidError, ValueError):
         return render_template(
             "register.html",
             error="Enter a valid email address.",
         ), 400
 
-    if len(email) > 254:
-        return render_template(
-            "register.html",
-            error="Your email address is too long.",
-        ), 400
+    password = request.form.get("password", "")
+    confirmation = request.form.get("confirm_password", "")
+    error = password_error(password, confirmation)
 
-    if len(password) < 15:
-        return render_template(
-            "register.html",
-            error="Your password must contain at least 15 characters.",
-        ), 400
-
-    if len(password) > 128:
-        return render_template(
-            "register.html",
-            error="Your password is too long. Please shorten it.",
-        ), 400
-
-    if not any(character.isdigit() for character in password):
-        return render_template(
-            "register.html",
-            error="Your password must include at least one number.",
-        ), 400
-
-    if not any(
-        not character.isalnum() and not character.isspace()
-        for character in password
-    ):
-        return render_template(
-            "register.html",
-            error=(
-                "Your password must include at least one symbol, "
-                "such as !, @, or #."
-            ),
-        ), 400
-
-    if password != confirmation:
-        return render_template(
-            "register.html",
-            error="The passwords do not match.",
-        ), 400
+    if error:
+        return render_template("register.html", error=error), 400
 
     existing_user = db.session.execute(
         db.select(User).where(User.email == email)
@@ -187,7 +229,6 @@ def register():
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
-
         return render_template(
             "register.html",
             error=(
@@ -198,7 +239,6 @@ def register():
     except SQLAlchemyError:
         db.session.rollback()
         app.logger.exception("Could not create account")
-
         return render_template(
             "register.html",
             error="We could not save your account. Please try again.",
@@ -208,7 +248,8 @@ def register():
     return redirect(url_for("login"))
 
 
-# Login.
+# Login and logout.
+
 @app.route("/login", methods=["GET", "POST"])
 def login():
     if current_user.is_authenticated:
@@ -217,20 +258,15 @@ def login():
     if request.method == "GET":
         return render_template("login.html")
 
-    email_text = request.form.get("email", "").strip()
     password = request.form.get("password", "")
     error = "Email or password is incorrect."
 
     try:
-        email_info = validate_email(
-            email_text,
-            check_deliverability=False,
-        )
-        email = email_info.normalized.lower()
-    except EmailNotValidError:
+        email = normalize_email(request.form.get("email", ""))
+    except (EmailNotValidError, ValueError):
         return render_template("login.html", error=error), 401
 
-    if len(email) > 254 or not password or len(password) > 128:
+    if not password or len(password) > 128:
         return render_template("login.html", error=error), 401
 
     user = db.session.execute(
@@ -242,36 +278,223 @@ def login():
 
     session.clear()
     login_user(user, remember=False)
-
+    session["password_marker"] = password_fingerprint(user, "session")
     return redirect(url_for("home"))
 
 
-# Logout.
 @app.route("/logout", methods=["POST"])
 @login_required
 def logout():
     logout_user()
     session.clear()
     flash("You have been logged out.", "auth")
-
     return redirect(url_for("login"))
 
 
+# Password recovery.
+
+def create_reset_token(user):
+    return reset_serializer.dumps({
+        "user_id": user.id,
+        "marker": password_fingerprint(user, "reset"),
+        "nonce": secrets.token_urlsafe(16),
+    })
+
+
+def user_from_reset_token(token):
+    if not token or len(token) > 2048:
+        return None
+
+    try:
+        data = reset_serializer.loads(
+            token,
+            max_age=app.config["RESET_TOKEN_MAX_AGE"],
+        )
+    except BadSignature:
+        return None
+
+    if not isinstance(data, dict):
+        return None
+
+    user_id = data.get("user_id")
+    marker = data.get("marker")
+
+    if type(user_id) is not int:
+        return None
+
+    if not 1 <= user_id <= 9223372036854775807:
+        return None
+
+    if not isinstance(marker, str):
+        return None
+
+    user = db.session.get(User, user_id)
+
+    if user is None:
+        return None
+
+    if not hmac.compare_digest(
+        marker,
+        password_fingerprint(user, "reset"),
+    ):
+        return None
+
+    return user
+
+
+@app.after_request
+def protect_reset_pages(response):
+    if request.endpoint in {"forgot_password", "reset_password"}:
+        response.headers["Cache-Control"] = "no-store"
+        response.headers["Referrer-Policy"] = "no-referrer"
+
+    return response
+
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    if request.method == "GET":
+        messages = get_flashed_messages(
+            category_filter=["password_reset"]
+        )
+        return render_template(
+            "password_recovery.html",
+            mode="request",
+            success=" ".join(messages),
+        )
+
+    try:
+        email = normalize_email(request.form.get("email", ""))
+    except (EmailNotValidError, ValueError):
+        return render_template(
+            "password_recovery.html",
+            mode="request",
+            error="Enter a valid email address.",
+        ), 400
+
+    user = db.session.execute(
+        db.select(User).where(User.email == email)
+    ).scalar_one_or_none()
+
+    if user is not None:
+        token = create_reset_token(user)
+        reset_path = url_for("reset_password", token=token)
+        reset_url = app.config["APP_BASE_URL"] + reset_path
+
+        body = (
+            "Hello,\n\n"
+            "We received a request to reset your Finance Tracker "
+            "password.\n\n"
+            "Open this link to choose a new password:\n"
+            f"{reset_url}\n\n"
+            "This link expires in 15 minutes and cannot be reused "
+            "after a successful password reset.\n\n"
+            "If you did not request this, you can ignore this email. "
+            "Your password has not changed.\n\n"
+            "Finance Tracker"
+        )
+
+        try:
+            send_email(
+                user.email,
+                "Reset your Finance Tracker password",
+                body,
+            )
+        except (smtplib.SMTPException, OSError):
+            # Avoid logging reset links, passwords, or SMTP credentials.
+            app.logger.error("Password-reset email delivery failed.")
+
+    # Give the same response whether the account exists or not.
+    flash(RESET_MESSAGE, "password_reset")
+    return redirect(url_for("forgot_password"))
+
+
+@app.route("/reset-password/<token>", methods=["GET", "POST"])
+def reset_password(token):
+    user = user_from_reset_token(token)
+
+    if user is None:
+        return render_template(
+            "password_recovery.html",
+            mode="invalid",
+        ), 400
+
+    if request.method == "GET":
+        return render_template(
+            "password_recovery.html",
+            mode="reset",
+            token=token,
+        )
+
+    password = request.form.get("password", "")
+    confirmation = request.form.get("confirm_password", "")
+    error = password_error(password, confirmation)
+
+    if error:
+        return render_template(
+            "password_recovery.html",
+            mode="reset",
+            token=token,
+            error=error,
+        ), 400
+
+    old_hash = user.password_hash
+    new_hash = generate_password_hash(password)
+
+    # Update only if the password has not already changed.
+    # This also prevents two simultaneous requests reusing one link.
+    try:
+        result = db.session.execute(
+            update(User)
+            .where(
+                User.id == user.id,
+                User.password_hash == old_hash,
+            )
+            .values(password_hash=new_hash)
+            .execution_options(synchronize_session=False)
+        )
+
+        if result.rowcount != 1:
+            db.session.rollback()
+            return render_template(
+                "password_recovery.html",
+                mode="invalid",
+            ), 400
+
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        app.logger.error("Could not save password reset.")
+        return render_template(
+            "password_recovery.html",
+            mode="reset",
+            token=token,
+            error="We could not save your password. Please try again.",
+        ), 500
+
+    # Other signed-in sessions fail their password-marker check
+    # on their next request.
+    logout_user()
+    session.clear()
+
+    return render_template(
+        "password_recovery.html",
+        mode="complete",
+    )
+
+
 # List the signed-in user's expenses.
+
 @app.route("/expenses")
 @login_required
 def expenses():
-    user = current_user
-
     expense_list = db.session.execute(
         db.select(Expense)
-        .where(Expense.user_id == user.id)
+        .where(Expense.user_id == current_user.id)
         .order_by(Expense.date.desc(), Expense.id.desc())
     ).scalars().all()
 
-    total_kobo = sum(
-        expense.amount_kobo for expense in expense_list
-    )
+    total_kobo = sum(expense.amount_kobo for expense in expense_list)
 
     return render_template(
         "expenses.html",
@@ -280,13 +503,13 @@ def expenses():
     )
 
 
-# Add an expense belonging to the signed-in user.
+# Add an expense.
+
 @app.route("/expenses/new", methods=["GET", "POST"])
 @login_required
 def add_expense():
     if request.method == "GET":
         messages = get_flashed_messages()
-
         return render_template(
             "add_expense.html",
             success=" ".join(messages),
@@ -299,7 +522,6 @@ def add_expense():
 
     try:
         expense_date = date.fromisoformat(date_text)
-
         if expense_date.isoformat() != date_text:
             raise ValueError
     except ValueError:
@@ -338,15 +560,12 @@ def add_expense():
             error="Amount must be greater than zero.",
         ), 400
 
-    amount_kobo = int(amount * 100)
-    user = current_user
-
     expense = Expense(
-        user=user,
+        user_id=current_user.id,
         date=expense_date,
         category=category,
         item=item,
-        amount_kobo=amount_kobo,
+        amount_kobo=int(amount * 100),
     )
 
     try:
@@ -355,7 +574,6 @@ def add_expense():
     except SQLAlchemyError:
         db.session.rollback()
         app.logger.exception("Could not save expense")
-
         return render_template(
             "add_expense.html",
             error="The expense could not be saved. Please try again.",
@@ -366,6 +584,7 @@ def add_expense():
 
 
 # Dashboard and monthly summary.
+
 @app.route("/", endpoint="home")
 @app.route("/summary")
 @login_required
@@ -381,11 +600,7 @@ def summary():
 
         year, month = map(int, selected_month.split("-"))
         first_day = date(year, month, 1)
-        last_day = date(
-            year,
-            month,
-            monthrange(year, month)[1],
-        )
+        last_day = date(year, month, monthrange(year, month)[1])
     except ValueError:
         return render_template(
             "summary.html",
@@ -393,12 +608,10 @@ def summary():
             selected_month="",
         ), 400
 
-    user = current_user
-
     monthly_expenses = db.session.execute(
         db.select(Expense)
         .where(
-            Expense.user_id == user.id,
+            Expense.user_id == current_user.id,
             Expense.date >= first_day,
             Expense.date <= last_day,
         )
@@ -413,7 +626,6 @@ def summary():
 
     for expense in monthly_expenses:
         category = expense.category.strip().title()
-
         category_totals[category] = (
             category_totals.get(category, 0) + expense.amount_kobo
         )
