@@ -1,5 +1,13 @@
 {% extends "base.html" %}
 
+{% set errors = field_errors | default({}) %}
+{% set field_labels = {
+    "date": "Date",
+    "category": "Category",
+    "item": "What did you spend on?",
+    "amount": "Amount"
+} %}
+
 {% block title %}
     {{ "Edit Expense" if edit_mode else "Add Expense" }} | Finance Tracker
 {% endblock %}
@@ -33,11 +41,27 @@
         </p>
 
         {% if error %}
-            <div class="message" role="alert">
+            <div class="message"
+                 id="form-error-summary"
+                 role="alert"
+                 tabindex="-1">
                 <strong>
                     {{ "Changes not saved" if edit_mode else "Expense not saved" }}
                 </strong>
+
                 <p>{{ error }}</p>
+
+                {% if errors %}
+                    <ul class="error-list">
+                        {% for field, message in errors.items() %}
+                            <li>
+                                <a href="#{{ field }}">
+                                    {{ field_labels[field] }}: {{ message }}
+                                </a>
+                            </li>
+                        {% endfor %}
+                    </ul>
+                {% endif %}
             </div>
         {% endif %}
 
@@ -65,13 +89,21 @@
                     <input type="date"
                            id="date"
                            name="date"
+                           max="{{ max_expense_date }}"
                            value="{{ form_values.get('date', '') }}"
-                           aria-describedby="date-hint"
+                           aria-describedby="date-hint{% if errors.get('date') %} date-error{% endif %}"
+                           {% if errors.get('date') %}aria-invalid="true"{% endif %}
                            required>
 
                     <p class="field-hint" id="date-hint">
                         When did you make this purchase?
                     </p>
+
+                    {% if errors.get("date") %}
+                        <p class="field-error" id="date-error">
+                            {{ errors["date"] }}
+                        </p>
+                    {% endif %}
                 </div>
 
                 <div class="field">
@@ -83,12 +115,19 @@
                            placeholder="Food, Transport, Bills"
                            maxlength="50"
                            value="{{ form_values.get('category', '') }}"
-                           aria-describedby="category-hint"
+                           aria-describedby="category-hint{% if errors.get('category') %} category-error{% endif %}"
+                           {% if errors.get('category') %}aria-invalid="true"{% endif %}
                            required>
 
                     <p class="field-hint" id="category-hint">
                         Use consistent names to group your spending.
                     </p>
+
+                    {% if errors.get("category") %}
+                        <p class="field-error" id="category-error">
+                            {{ errors["category"] }}
+                        </p>
+                    {% endif %}
                 </div>
 
                 <div class="field field-wide">
@@ -100,7 +139,17 @@
                            placeholder="For example, lunch or bus fare"
                            maxlength="200"
                            value="{{ form_values.get('item', '') }}"
+                           {% if errors.get('item') %}
+                               aria-invalid="true"
+                               aria-describedby="item-error"
+                           {% endif %}
                            required>
+
+                    {% if errors.get("item") %}
+                        <p class="field-error" id="item-error">
+                            {{ errors["item"] }}
+                        </p>
+                    {% endif %}
                 </div>
 
                 <div class="field field-wide">
@@ -115,13 +164,20 @@
                            max="999999999999.99"
                            step="0.01"
                            value="{{ form_values.get('amount', '') }}"
-                           aria-describedby="amount-hint"
+                           aria-describedby="amount-hint{% if errors.get('amount') %} amount-error{% endif %}"
+                           {% if errors.get('amount') %}aria-invalid="true"{% endif %}
                            required>
 
                     <p class="field-hint" id="amount-hint">
                         Enter a positive amount, without commas or a
                         currency symbol. Use up to two decimal places.
                     </p>
+
+                    {% if errors.get("amount") %}
+                        <p class="field-error" id="amount-error">
+                            {{ errors["amount"] }}
+                        </p>
+                    {% endif %}
                 </div>
             </div>
 
@@ -137,4 +193,12 @@
             </div>
         </form>
     </section>
+{% endblock %}
+
+{% block scripts %}
+    {% if error %}
+        <script>
+            document.getElementById("form-error-summary").focus();
+        </script>
+    {% endif %}
 {% endblock %}

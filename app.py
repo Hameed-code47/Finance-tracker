@@ -1,5 +1,5 @@
 from calendar import monthrange
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 import hashlib
@@ -504,52 +504,88 @@ def expenses():
         total_kobo=total_kobo,
     )
 
+def expense_today():
+    # Use Nigerian time consistently, including after deployment.
+    nigeria_time = timezone(timedelta(hours=1))
+    return datetime.now(nigeria_time).date()
+
+
+@app.context_processor
+def expense_date_settings():
+    return {"max_expense_date": expense_today().isoformat()}
 
 # Shared validation for adding and editing expenses.
 
+class ExpenseFormError(ValueError):
+    def __init__(self, errors):
+        self.errors = errors
+        super().__init__("Check the highlighted fields and try again.")
+
+
 def validate_expense_form(form):
+    errors = {}
+
     date_text = form.get("date", "").strip()
     category = form.get("category", "").strip()
     item = form.get("item", "").strip()
     amount_text = form.get("amount", "").strip()
 
-    try:
-        expense_date = date.fromisoformat(date_text)
+    expense_date = None
+    amount_kobo = None
 
-        if expense_date.isoformat() != date_text:
-            raise ValueError
-    except ValueError:
-        raise ValueError(
-            "Enter a real date in YYYY-MM-DD format."
-        ) from None
+    if not date_text:
+        errors["date"] = "Choose the date of this expense."
+    else:
+        try:
+            expense_date = date.fromisoformat(date_text)
 
-    if not category or len(category) > 50:
-        raise ValueError(
-            "Category must contain between 1 and 50 characters."
+            if expense_date.isoformat() != date_text:
+                raise ValueError
+        except ValueError:
+            errors["date"] = "Enter a real date in YYYY-MM-DD format."
+        else:
+            if expense_date > expense_today():
+                errors["date"] = (
+                    "An expense cannot have a future date. "
+                    "Choose today or an earlier date."
+                )
+    if not category:
+        errors["category"] = "Enter a category."
+    elif len(category) > 50:
+        errors["category"] = "Use no more than 50 characters."
+
+    if not item:
+        errors["item"] = "Describe what you spent money on."
+    elif len(item) > 200:
+        errors["item"] = "Use no more than 200 characters."
+
+    if not amount_text:
+        errors["amount"] = "Enter the amount you spent."
+    elif not re.fullmatch(
+        r"[0-9]{1,12}(?:\.[0-9]{1,2})?",
+        amount_text,
+    ):
+        errors["amount"] = (
+            "Enter a positive amount such as 1250.50. "
+            "Use no commas or currency symbols, at most 12 digits "
+            "before the decimal point, and 2 after it."
         )
+    else:
+        amount = Decimal(amount_text)
 
-    if not item or len(item) > 200:
-        raise ValueError(
-            "Item must contain between 1 and 200 characters."
-        )
+        if amount <= 0:
+            errors["amount"] = "Amount must be greater than zero."
+        else:
+            amount_kobo = int(amount * 100)
 
-    if not re.fullmatch(r"[0-9]{1,12}(?:\.[0-9]{1,2})?", amount_text):
-        raise ValueError(
-            "Enter an amount such as 1250.50, without commas or "
-            "a currency symbol. Use at most 12 digits before the "
-            "decimal point and 2 after it."
-        )
-
-    amount = Decimal(amount_text)
-
-    if amount <= 0:
-        raise ValueError("Amount must be greater than zero.")
+    if errors:
+        raise ExpenseFormError(errors)
 
     return {
         "date": expense_date,
         "category": category,
         "item": item,
-        "amount_kobo": int(amount * 100),
+        "amount_kobo": amount_kobo,
     }
 
 
@@ -588,11 +624,12 @@ def add_expense():
 
     try:
         values = validate_expense_form(request.form)
-    except ValueError as error:
+    except ExpenseFormError as error:
         return render_template(
             "add_expense.html",
             edit_mode=False,
             form_values=request.form,
+            field_errors=error.errors,
             error=str(error),
         ), 400
 
@@ -649,12 +686,13 @@ def edit_expense(expense_id):
 
     try:
         values = validate_expense_form(request.form)
-    except ValueError as error:
+    except ExpenseFormError as error:
         return render_template(
             "add_expense.html",
             edit_mode=True,
             expense_id=expense_id,
             form_values=request.form,
+            field_errors=error.errors,
             error=str(error),
         ), 400
 

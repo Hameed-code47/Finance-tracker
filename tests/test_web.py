@@ -764,3 +764,176 @@ def test_delete_requires_login(web_client, web_module, method):
             web_module.Expense,
             expense_id,
         ) is not None
+def test_add_shows_multiple_field_errors_and_preserves_values(
+    web_client,
+    web_module,
+):
+    login(web_client)
+
+    response = post_form(
+        web_client,
+        "/expenses/new",
+        {
+            "date": "2026-01-20",
+            "category": "   ",
+            "item": "Keep this description",
+            "amount": "0",
+        },
+    )
+
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert 'id="category-error"' in page
+    assert 'id="amount-error"' in page
+    assert "Enter a category." in page
+    assert "Amount must be greater than zero." in page
+    assert 'value="Keep this description"' in page
+    assert 'value="2026-01-20"' in page
+    assert page.count('aria-invalid="true"') == 2
+
+    with web_module.app.app_context():
+        records = web_module.db.session.execute(
+            web_module.db.select(web_module.Expense)
+        ).scalars().all()
+
+        assert len(records) == 2
+
+    # Correct the errors and submit successfully.
+    response = post_form(
+        web_client,
+        "/expenses/new",
+        {
+            "date": "2026-01-20",
+            "category": "Food",
+            "item": "Keep this description",
+            "amount": "500.00",
+        },
+    )
+
+    assert response.status_code == 302
+
+    with web_module.app.app_context():
+        saved = web_module.db.session.execute(
+            web_module.db.select(web_module.Expense).where(
+                web_module.Expense.item == "Keep this description"
+            )
+        ).scalar_one()
+
+        assert saved.amount_kobo == 50000
+        assert saved.user.email == ALICE_EMAIL
+
+
+def test_edit_shows_multiple_field_errors_without_saving(
+    web_client,
+    web_module,
+):
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+
+    response = post_form(
+        web_client,
+        f"/expenses/{expense_id}/edit",
+        {
+            "date": "2026-02-30",
+            "category": "Transport",
+            "item": "Keep my attempted correction",
+            "amount": "0",
+        },
+    )
+
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert 'id="date-error"' in page
+    assert 'id="amount-error"' in page
+    assert 'value="Transport"' in page
+    assert 'value="Keep my attempted correction"' in page
+    assert page.count('aria-invalid="true"') == 2
+
+    with web_module.app.app_context():
+        expense = web_module.db.session.get(
+            web_module.Expense,
+            expense_id,
+        )
+
+        assert expense.item == "Alice private lunch"
+        assert expense.category == "Food"
+        assert expense.date.isoformat() == "2026-01-10"
+        assert expense.amount_kobo == 125050
+
+@pytest.mark.parametrize("mode", ["add", "edit"])
+@pytest.mark.parametrize("offset", [-1, 0, 1])
+def test_expense_date_cannot_be_in_the_future(
+    web_client,
+    web_module,
+    monkeypatch,
+    mode,
+    offset,
+):
+    from datetime import date, timedelta
+
+    # Fix "today" so this test remains reliable on future runs.
+    today = date(2026, 11, 8)
+    monkeypatch.setattr(web_module, "expense_today", lambda: today)
+
+    login(web_client)
+
+    expense_id = find_test_expense_id(
+        web_module,
+        "Alice private lunch",
+    )
+
+    if mode == "add":
+        path = "/expenses/new"
+    else:
+        path = f"/expenses/{expense_id}/edit"
+
+    page = web_client.get(path).get_data(as_text=True)
+    assert 'max="2026-11-08"' in page
+
+    chosen_date = today + timedelta(days=offset)
+
+    response = post_form(
+        web_client,
+        path,
+        {
+            "date": chosen_date.isoformat(),
+            "category": "Food",
+            "item": "Date boundary test",
+            "amount": "100.00",
+        },
+    )
+
+    if offset > 0:
+        assert response.status_code == 400
+        assert "An expense cannot have a future date." in (
+            response.get_data(as_text=True)
+        )
+    else:
+        assert response.status_code == 302
+
+    with web_module.app.app_context():
+        saved = web_module.db.session.execute(
+            web_module.db.select(web_module.Expense).where(
+                web_module.Expense.item == "Date boundary test"
+            )
+        ).scalar_one_or_none()
+
+        if offset > 0:
+            assert saved is None
+
+            original = web_module.db.session.get(
+                web_module.Expense,
+                expense_id,
+            )
+            assert original.item == "Alice private lunch"
+            assert original.date.isoformat() == "2026-01-10"
+        else:
+            assert saved is not None
+            assert saved.date == chosen_date
+            assert saved.amount_kobo == 10000    
