@@ -193,25 +193,51 @@ def register():
         messages = get_flashed_messages(
             category_filter=["registration"]
         )
+
         return render_template(
             "register.html",
             success=" ".join(messages),
+            field_errors={},
         )
 
-    try:
-        email = normalize_email(request.form.get("email", ""))
-    except (EmailNotValidError, ValueError):
-        return render_template(
-            "register.html",
-            error="Enter a valid email address.",
-        ), 400
-
+    email_text = request.form.get("email", "").strip()
     password = request.form.get("password", "")
     confirmation = request.form.get("confirm_password", "")
-    error = password_error(password, confirmation)
 
-    if error:
-        return render_template("register.html", error=error), 400
+    errors = {}
+    email = None
+
+    # Validate email.
+    if not email_text:
+        errors["email"] = "Enter your email address."
+    else:
+        try:
+            email = normalize_email(email_text)
+        except (EmailNotValidError, ValueError):
+            errors["email"] = "Enter a valid email address."
+
+    # Use the same password rules as password recovery.
+    # Confirmation is checked separately below.
+    if not password:
+        errors["password"] = "Enter a password."
+    else:
+        policy_error = password_error(password, password)
+
+        if policy_error:
+            errors["password"] = policy_error
+
+    # Validate confirmation independently.
+    if not confirmation:
+        errors["confirm_password"] = "Confirm your password."
+    elif password != confirmation:
+        errors["confirm_password"] = "The passwords do not match."
+
+    if errors:
+        return render_template(
+            "register.html",
+            field_errors=errors,
+            error="Check the highlighted fields and try again.",
+        ), 400
 
     existing_user = db.session.execute(
         db.select(User).where(User.email == email)
@@ -220,7 +246,10 @@ def register():
     if existing_user is not None:
         return render_template(
             "register.html",
-            error="An account with this email already exists.",
+            field_errors={
+                "email": "An account with this email already exists."
+            },
+            error="We could not create your account. Check your email below.",
         ), 409
 
     user = User(email=email)
@@ -231,24 +260,29 @@ def register():
         db.session.commit()
     except IntegrityError:
         db.session.rollback()
+
         return render_template(
             "register.html",
-            error=(
-                "The account could not be created. "
-                "This email may already be registered."
-            ),
+            field_errors={
+                "email": (
+                    "This email may already be registered. "
+                    "Try logging in or resetting your password."
+                )
+            },
+            error="The account could not be created.",
         ), 409
     except SQLAlchemyError:
         db.session.rollback()
         app.logger.exception("Could not create account")
+
         return render_template(
             "register.html",
+            field_errors={},
             error="We could not save your account. Please try again.",
         ), 500
 
     flash("Your account was created. Please log in.", "registration")
     return redirect(url_for("login"))
-
 
 # Login and logout.
 

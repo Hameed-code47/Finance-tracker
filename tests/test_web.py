@@ -936,4 +936,163 @@ def test_expense_date_cannot_be_in_the_future(
         else:
             assert saved is not None
             assert saved.date == chosen_date
-            assert saved.amount_kobo == 10000    
+            assert saved.amount_kobo == 10000  
+def test_registration_shows_multiple_field_errors(
+    web_client,
+    web_module,
+):
+    response = post_form(
+        web_client,
+        "/register",
+        {
+            "email": "not-an-email",
+            "password": "short",
+            "confirm_password": "different",
+        },
+    )
+
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 400
+    assert 'id="email-error"' in page
+    assert 'id="password-error"' in page
+    assert 'id="confirm-password-error"' in page
+    class InvalidInputParser(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.invalid_fields = []
+
+        def handle_starttag(self, tag, attrs):
+            attributes = dict(attrs)
+
+            if tag == "input" and attributes.get("aria-invalid") == "true":
+                self.invalid_fields.append(attributes.get("name"))
+
+    parser = InvalidInputParser()
+    parser.feed(page)
+
+    assert sorted(parser.invalid_fields) == [
+        "confirm_password",
+        "email",
+        "password",
+    ]
+
+    assert 'value="not-an-email"' in page
+    assert 'value="short"' not in page
+    assert 'value="different"' not in page
+
+    with web_module.app.app_context():
+        users = web_module.db.session.execute(
+            web_module.db.select(web_module.User)
+        ).scalars().all()
+
+        # Only the two accounts created by the test setup exist.
+        assert len(users) == 2
+
+
+def test_registration_rejects_duplicate_email(
+    web_client,
+    web_module,
+):
+    response = post_form(
+        web_client,
+        "/register",
+        {
+            "email": "ALICE@EXAMPLE.COM",
+            "password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+
+    page = response.get_data(as_text=True)
+
+    assert response.status_code == 409
+    assert 'id="email-error"' in page
+    assert "An account with this email already exists." in page
+
+    with web_module.app.app_context():
+        users = web_module.db.session.execute(
+            web_module.db.select(web_module.User)
+        ).scalars().all()
+
+        assert len(users) == 2
+
+        alice = web_module.db.session.execute(
+            web_module.db.select(web_module.User).where(
+                web_module.User.email == ALICE_EMAIL
+            )
+        ).scalar_one()
+
+        # Registration must not change an existing account's password.
+        assert alice.check_password(ALICE_PASSWORD)
+
+
+def test_registration_creates_account_and_allows_login(
+    web_client,
+    web_module,
+):
+    email = "newuser@example.com"
+    password = "NewAccountTesting123!"
+
+    response = post_form(
+        web_client,
+        "/register",
+        {
+            "email": email,
+            "password": password,
+            "confirm_password": password,
+        },
+    )
+
+    assert response.status_code == 302
+    assert urlsplit(response.headers["Location"]).path == "/login"
+
+    with web_module.app.app_context():
+        user = web_module.db.session.execute(
+            web_module.db.select(web_module.User).where(
+                web_module.User.email == email
+            )
+        ).scalar_one()
+
+        assert user.password_hash != password
+        assert user.check_password(password)
+
+    # Registration should not automatically sign the user in.
+    assert web_client.get("/expenses").status_code == 302
+
+    response = post_form(
+        web_client,
+        "/login",
+        {
+            "email": email,
+            "password": password,
+        },
+    )
+
+    assert response.status_code == 302
+    assert web_client.get("/expenses").status_code == 200
+
+
+def test_registration_without_csrf_is_rejected(
+    web_client,
+    web_module,
+):
+    response = web_client.post(
+        "/register",
+        data={
+            "email": "blocked@example.com",
+            "password": NEW_PASSWORD,
+            "confirm_password": NEW_PASSWORD,
+        },
+    )
+
+    assert response.status_code == 400
+
+    with web_module.app.app_context():
+        user = web_module.db.session.execute(
+            web_module.db.select(web_module.User).where(
+                web_module.User.email == "blocked@example.com"
+            )
+        ).scalar_one_or_none()
+
+        assert user is None
