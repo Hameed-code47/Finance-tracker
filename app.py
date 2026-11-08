@@ -55,7 +55,10 @@ def enable_sqlite_foreign_keys(connection, connection_record):
 app = Flask(__name__)
 Path(app.instance_path).mkdir(parents=True, exist_ok=True)
 
-app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///finance.db"
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL",
+    "sqlite:///finance.db",
+)
 app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 app.config["APP_BASE_URL"] = os.environ["APP_BASE_URL"].rstrip("/")
 app.config["RESET_TOKEN_MAX_AGE"] = 15 * 60
