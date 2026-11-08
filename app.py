@@ -82,8 +82,11 @@ app.config["SQLALCHEMY_ENGINE_OPTIONS"] = {
 app.config["SECRET_KEY"] = os.environ["SECRET_KEY"]
 app.config["APP_BASE_URL"] = os.environ["APP_BASE_URL"].rstrip("/")
 app.config["RESET_TOKEN_MAX_AGE"] = 15 * 60
+is_production = os.environ.get("APP_ENV", "development") == "production"
+
 app.config["SESSION_COOKIE_HTTPONLY"] = True
 app.config["SESSION_COOKIE_SAMESITE"] = "Lax"
+app.config["SESSION_COOKIE_SECURE"] = is_production
 
 db.init_app(app)
 csrf = CSRFProtect(app)
@@ -937,4 +940,4 @@ def summary():
 
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run()
