@@ -485,7 +485,7 @@ def user_from_reset_token(token):
 def protect_reset_pages(response):
     if request.endpoint in {"forgot_password", "reset_password"}:
         response.headers["Cache-Control"] = "no-store"
-        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Referrer-Policy"] = "strict-origin"
 
     return response
 
