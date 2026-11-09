@@ -949,6 +949,14 @@ def summary():
         recent_expenses=monthly_expenses[:5],
     )
 
+@app.route("/deployment-check")
+@login_required
+def deployment_check():
+    return {
+        "remote_addr": request.remote_addr,
+        "forwarded_for": request.headers.get("X-Forwarded-For"),
+        "is_https": request.is_secure,
+    }, 200, {"Cache-Control": "no-store"}
 
 if __name__ == "__main__":
     app.run()
